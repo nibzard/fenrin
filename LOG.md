@@ -4,8 +4,9 @@ Date: 2026-07-15
 Branch: `perf/name-generation-10-rounds`  
 Primary target: `names`
 
-This run follows `docs/optimization-loop.md`, with one explicit limit override:
-the requested ten candidate rounds replace the document's default cap of eight.
+This run follows `docs/optimization-loop.md`, with one explicit fixed-count override:
+the requested ten candidate rounds replace the document's default cap of eight
+and its early stop after three consecutive rejections.
 All benchmark commands, seeded snapshots, correctness gates, quality requirements,
 and accept/reject thresholds remain frozen for the run.
 
@@ -45,6 +46,12 @@ and accept/reject thresholds remain frozen for the run.
 | 2 | Render only the selected elite candidate instead of all candidates | 272,491 | 283,881 | +4.18% | 79,972 | 77,455 | -3.15% | identical | reject |
 | 3 | Reuse the underlying-unit allocation across fill attempts | 272,491 | 325,193 | +19.34% | 79,972 | 84,071 | +5.13% | identical | keep |
 | 4 | Use cumulative production weights and binary search instead of linear subtraction | 325,193 | 495,813 | +52.47% | 84,071 | 100,015 | +18.96% | identical | keep |
+| 5 | Short-circuit max-run validation at the first over-limit unit | 495,813 | 486,634 | -1.85% | 100,015 | 100,946 | +0.93% | identical | reject |
+| 6 | Compact generated units to one machine word using a boundary sentinel | 495,813 | 492,432 | -0.68% | 100,015 | 110,604 | +10.59% | identical | reject |
+| 7 | Narrow private production-symbol payloads from `usize` to `u8` | 495,813 | 475,875 | -4.02% | 100,015 | 94,794 | -5.22% | identical | reject |
+| 8 | Enable ThinLTO for cross-crate release optimization | 495,813 | 492,402 | -0.69% | 100,015 | 106,502 | +6.49% | identical | reject |
+| 9 | Compile release artifacts as a single codegen unit | 495,813 | 488,641 | -1.45% | 100,015 | 88,679 | -11.33% | identical | reject |
+| 10 | Remove expansion guards already proven unreachable by grammar validation | 495,813 | 496,639 | +0.17% | 100,015 | 105,589 | +5.57% | identical | reject |
 
 Baseline raw measurements (names/second):
 
@@ -117,6 +124,174 @@ Baseline quality statistics were identical across all repetitions:
 - Quality: all reported statistics match the baseline exactly.
 - Decision: accepted. Fenrin improves 52.47%, and Japanese improves 18.96%.
 
+### Round 5: short-circuit max-run constraints
+
+- Proposed work removal: stop scanning a candidate at the first over-limit run
+  and avoid maintaining a running maximum.
+- Fenrin measurements: 486,634; 487,516; 478,228
+  (median 486,634; spread 1.94%).
+- Japanese measurements: 102,869; 100,946; 99,949
+  (median 100,946; spread 2.92%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. Fenrin regresses 1.85%, and the Japanese gain is only
+  0.93%; neither clears the primary 2% floor.
+
+### Round 6: compact the generated-unit representation
+
+- Proposed work removal: halve `Unit` storage from 16 bytes to one machine word
+  by reserving `usize::MAX` for boundaries; segment IDs are capped at 256.
+- Fenrin measurements: 490,844; 492,432; 511,024
+  (median 492,432; spread 4.11%).
+- Japanese measurements: 108,965; 111,374; 110,604
+  (median 110,604; spread 2.21%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. Fenrin regresses 0.68% and fails the primary 2% floor,
+  despite a 10.59% Japanese improvement. This remains a candidate for a future
+  Japanese-primary loop.
+
+### Round 7: narrow compiled production-symbol payloads
+
+- Proposed work removal: reduce the private `Symbol` enum's payload from
+  `usize` to `u8`; configured segment and rule limits fit in one byte.
+- Fenrin measurements: 476,077; 475,875; 471,419
+  (median 475,875; spread 0.99%).
+- Japanese measurements: 94,672; 94,994; 94,794
+  (median 94,794; spread 0.34%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. Fenrin regresses 4.02%, and Japanese regresses 5.22%.
+- Process note: this is the third consecutive rejection. The requested fixed
+  ten-round goal overrides the normal early-stop condition, so rounds 8–10
+  continue while all measurement and correctness decision rules remain active.
+
+### Round 8: enable ThinLTO
+
+- Proposed work removal: allow release optimization and inlining across the
+  library/example crate boundary and across codegen units.
+- Fenrin measurements: 495,706; 485,073; 492,402
+  (median 492,402; spread 2.19%).
+- Japanese measurements: 106,502; 103,527; 110,553
+  (median 106,502; spread 6.79%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. Fenrin regresses 0.69% and fails the primary 2% floor,
+  despite a 6.49% Japanese improvement. The Japanese series also exceeds the
+  5% spread limit, reinforcing the rejection rather than requiring an uncertain
+  primary-band remeasurement.
+
+### Round 9: use one release codegen unit
+
+- Proposed work removal: expose the complete grammar crate to one optimization
+  unit without enabling link-time optimization.
+- Fenrin measurements: 488,641; 493,597; 469,785
+  (median 488,641; spread 5.07%).
+- Japanese measurements: 92,467; 88,679; 88,481
+  (median 88,679; spread 4.50%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. Fenrin regresses 1.45%, and Japanese regresses 11.33%.
+  Fenrin's spread is also marginally above the stability limit, with no sample
+  showing the 2% gain needed to make further measurement relevant.
+
+### Round 10: remove redundant expansion guards
+
+- Proposed work removal: rely on the parser's acyclic-graph and 64-unit proofs
+  instead of checking recursion depth, output length, and propagated success at
+  every expansion step. Rewrite growth checks remain separate and unchanged.
+- Fenrin measurements: 496,639; 488,300; 514,523
+  (median 496,639; spread 5.37%).
+- Japanese measurements: 106,818; 99,114; 105,589
+  (median 105,589; spread 7.77%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. Fenrin improves only 0.17%, below the 2% floor, despite
+  a 5.57% Japanese gain. Both series also exceed the 5% spread limit, but no
+  plausible primary median crosses the acceptance threshold.
+
 ## Final verification
 
-Pending completion of round 10.
+### Outcome
+
+| Profile | Starting median | Ending accepted median | Cumulative change | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| fenrin | 94,987 | 495,813 | +421.98% | 5.22x |
+| japanese | 47,757 | 100,015 | +109.42% | 2.09x |
+
+Accepted hypotheses:
+
+1. Precompute dense feature-selector membership tables (round 1).
+2. Reuse the underlying-unit buffer across fill attempts (round 3).
+3. Store cumulative production weights and binary-search them (round 4).
+
+Rejected hypotheses:
+
+1. Defer rendering until elite selection because Japanese regressed beyond 2%.
+2. Short-circuit max-run validation because the primary profile regressed.
+3. Compact `Unit` because the primary profile stayed flat.
+4. Narrow `Symbol` payloads because both profiles regressed.
+5. Enable ThinLTO because the primary profile stayed flat.
+6. Use one release codegen unit because both profiles regressed.
+7. Remove validated expansion guards because the primary gain stayed below 2%.
+
+### Correctness and compatibility
+
+- `cargo fmt -- --check`: pass.
+- `cargo test --all-targets`: pass (53 tests).
+- `cargo clippy --all-targets -- -D warnings`: pass.
+- Final Fenrin and Japanese 1,000-name snapshots compare byte-for-byte with the
+  pre-loop snapshots and retain the same SHA-256 hashes.
+- Every iteration preserved the benchmark's duplicate percentage, pair matches,
+  collision bits, effective diversity, and maximum frequency exactly.
+- The SAS exhaustive tests pass; no SAS implementation was changed.
+
+### Required large benchmarks
+
+Default profile (`cargo run --release --example benchmark`):
+
+| Names | names/second | ns/name | unique | duplicate % | collision bits | effective diversity | max freq |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 491,268 | 2,036 | 995 | 0.500% | 16.61 | 9.990e4 | 2 |
+| 10,000 | 502,040 | 1,992 | 9,714 | 2.860% | 17.34 | 1.655e5 | 4 |
+| 1,000,000 | 506,945 | 1,973 | 412,401 | 58.760% | 17.29 | 1.599e5 | 83 |
+
+Japanese profile at 1,000,000 names:
+
+- 108,176 names/second; 9,244 ns/name; 499,551 unique; 50.045%
+  duplicates; 2,265,668 matching pairs; 17.75 collision bits; 2.207e5
+  effective diversity; maximum frequency 54.
+
+SAS final benchmark:
+
+| Phrases | phrases/second | ns/phrase |
+| ---: | ---: | ---: |
+| 1,000 | 40,708,910 | 25 |
+| 10,000 | 40,629,956 | 25 |
+| 1,000,000 | 41,277,965 | 24 |
+
+### Bundled-profile smoke test
+
+Every required 100,000-name release benchmark completed successfully:
+
+| Profile | names/second |
+| --- | ---: |
+| fenrin | 508,979 |
+| japanese | 101,396 |
+| ancient-roman | 140,684 |
+| slavic | 138,024 |
+| klingon | 247,339 |
+| oceanic | 186,507 |
+| uralic | 328,945 |
+| caucasian | 224,189 |
+| aurelian | 147,712 |
+| obsidian | 183,493 |
+
+### Remaining hotspot
+
+Japanese still rebuilds a temporary unit vector for each of seven rewrite rules
+on every candidate. A future Japanese-primary loop should test an in-place fast
+path for equal-length rewrites or a reusable rewrite scratch buffer. Round 6's
+10.59% Japanese-only gain and round 8's 6.49% Japanese-only gain show that this
+profile still has optimization headroom, but neither change met this loop's
+Fenrin-primary acceptance rule.
