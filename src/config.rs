@@ -3,8 +3,8 @@ use std::fs;
 use std::path::Path;
 
 use crate::grammar::{
-    Grammar, HardConstraint, MAX_UNITS, Matcher, Production, Rewrite, Rule, Segment, Selector,
-    SoftConstraint, Symbol, Unit,
+    Grammar, HardConstraint, MAX_UNITS, Matcher, PairRewriteTable, Production, Rewrite, Rule,
+    Segment, Selector, SoftConstraint, Symbol, Unit,
 };
 
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -75,6 +75,7 @@ pub fn parse(source: &str) -> Result<Grammar, String> {
     validate_rule_graph(&rules, &raw_rules, start)?;
 
     let rewrites = compile_rewrites(&directives, &segment_ids)?;
+    let pair_rewrites = PairRewriteTable::compile(&rewrites, segments.len());
     let hard_constraints = compile_hard_constraints(&directives, &segment_ids, &segments)?;
     let soft_constraints = compile_soft_constraints(&directives, &segment_ids, &segments)?;
 
@@ -83,6 +84,7 @@ pub fn parse(source: &str) -> Result<Grammar, String> {
         rules,
         start,
         rewrites,
+        pair_rewrites,
         hard_constraints,
         soft_constraints,
     })

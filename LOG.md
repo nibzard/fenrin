@@ -337,6 +337,8 @@ invariants remain enforced.
 | 0 | Baseline from the accepted first-loop implementation | — | 107,239 | — | — | 497,796 | — | baseline | keep |
 | 1 | Apply equal-length rewrites in place instead of rebuilding the unit vector | 107,239 | 146,685 | +36.78% | 497,796 | 488,431 | -1.88% | identical | keep |
 | 2 | Compile literal rewrite patterns as `Unit` sequences instead of generic matchers | 146,685 | 165,287 | +12.68% | 488,431 | 498,803 | +2.12% | identical | keep |
+| 3 | Specialize two-unit rewrites as direct comparisons and assignments | 165,287 | 173,296 | +4.85% | 498,803 | 479,821 | -3.81% | identical | reject |
+| 4 | Fuse statically independent ordered pair rewrites into one adjacency scan | 165,287 | 242,597 | +46.77% | 498,803 | 494,462 | -0.87% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -379,3 +381,35 @@ Baseline quality statistics:
 - Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 12.68%, and Fenrin improves 2.12%.
+
+### Round 3: specialize two-unit rewrites
+
+- Proposed work removal: replace generic slice-prefix comparison and slice copy
+  with two direct comparisons and two direct assignments for two-unit rules.
+- Japanese measurements: 173,147; 174,161; 171,887; 176,558; 173,296
+  (five-run median 173,296; spread 2.72%).
+- Fenrin measurements: 493,020; 475,560; 497,645; 479,821; 474,960
+  (five-run median 479,821; spread 4.78%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. The uncertain-band Japanese gain retained 4.85%, but
+  Fenrin regressed 3.81%, beyond the 2% secondary limit.
+
+### Round 4: fuse independent pair rewrites
+
+- Removed work: six of seven complete Japanese rewrite scans. Parse-time
+  eligibility proves every rule is two-to-two, preserves its context unit, and
+  keeps all contexts disjoint from source and replacement first units.
+- The dense lookup composes same-position cascades in declaration order; configs
+  that fail the conservative proof use the existing ordered fallback.
+- Initial Japanese measurements: 240,152; 250,861; 256,469. The 6.79% spread
+  triggered a replacement stabilized series.
+- Stabilized Japanese measurements: 242,597; 252,861; 241,844
+  (median 242,597; spread 4.56%).
+- Initial Fenrin measurements: 489,658; 494,619; 502,998.
+- Stabilized Fenrin measurements: 497,441; 494,462; 487,886
+  (median 494,462; spread 1.96%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 46.77%; Fenrin regresses 0.87%, within
+  the secondary limit.

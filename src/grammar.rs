@@ -57,6 +57,83 @@ pub(crate) struct Rewrite {
     pub(crate) replacement: Vec<Unit>,
 }
 
+#[derive(Debug)]
+pub(crate) struct PairRewriteTable {
+    width: usize,
+    replacements: Box<[Option<Unit>]>,
+}
+
+impl PairRewriteTable {
+    pub(crate) fn compile(rewrites: &[Rewrite], segment_count: usize) -> Option<Self> {
+        if rewrites.is_empty()
+            || rewrites.iter().any(|rewrite| {
+                rewrite.pattern.len() != 2
+                    || rewrite.replacement.len() != 2
+                    || rewrite.pattern[1] != rewrite.replacement[1]
+            })
+        {
+            return None;
+        }
+
+        let contexts: Vec<_> = rewrites.iter().map(|rewrite| rewrite.pattern[1]).collect();
+        let first_units: Vec<_> = rewrites
+            .iter()
+            .flat_map(|rewrite| [rewrite.pattern[0], rewrite.replacement[0]])
+            .collect();
+        if contexts.iter().any(|context| first_units.contains(context)) {
+            return None;
+        }
+
+        let width = segment_count + 1;
+        let mut replacements = vec![None; width * width];
+        for first_key in 0..width {
+            let original = Self::unit(first_key, segment_count);
+            for context_key in 0..width {
+                let context = Self::unit(context_key, segment_count);
+                let mut first = original;
+                for rewrite in rewrites {
+                    if rewrite.pattern == [first, context] {
+                        first = rewrite.replacement[0];
+                    }
+                }
+                if first != original {
+                    replacements[first_key * width + context_key] = Some(first);
+                }
+            }
+        }
+
+        Some(Self {
+            width,
+            replacements: replacements.into_boxed_slice(),
+        })
+    }
+
+    fn unit(key: usize, segment_count: usize) -> Unit {
+        if key == segment_count {
+            Unit::Boundary
+        } else {
+            Unit::Segment(key)
+        }
+    }
+
+    fn key(&self, unit: Unit) -> usize {
+        match unit {
+            Unit::Segment(segment) => segment,
+            Unit::Boundary => self.width - 1,
+        }
+    }
+
+    fn apply(&self, units: &mut [Unit]) {
+        for index in 0..units.len().saturating_sub(1) {
+            let first = self.key(units[index]);
+            let context = self.key(units[index + 1]);
+            if let Some(replacement) = self.replacements[first * self.width + context] {
+                units[index] = replacement;
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum HardConstraint {
     Max { selector: Selector, limit: usize },
@@ -88,6 +165,7 @@ pub struct Grammar {
     pub(crate) rules: Vec<Rule>,
     pub(crate) start: usize,
     pub(crate) rewrites: Vec<Rewrite>,
+    pub(crate) pair_rewrites: Option<PairRewriteTable>,
     pub(crate) hard_constraints: Vec<HardConstraint>,
     pub(crate) soft_constraints: Vec<SoftConstraint>,
 }
@@ -233,6 +311,11 @@ impl Grammar {
     }
 
     fn apply_rewrites(&self, units: &mut Vec<Unit>) -> bool {
+        if let Some(rewrites) = &self.pair_rewrites {
+            rewrites.apply(units);
+            return true;
+        }
+
         for rewrite in &self.rewrites {
             if rewrite.pattern.is_empty() {
                 return false;
