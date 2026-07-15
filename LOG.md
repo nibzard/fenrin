@@ -340,6 +340,7 @@ invariants remain enforced.
 | 3 | Specialize two-unit rewrites as direct comparisons and assignments | 165,287 | 173,296 | +4.85% | 498,803 | 479,821 | -3.81% | identical | reject |
 | 4 | Fuse statically independent ordered pair rewrites into one adjacency scan | 165,287 | 242,597 | +46.77% | 498,803 | 494,462 | -0.87% | identical | keep |
 | 5 | Compact generated units to one machine word using a boundary sentinel | 242,597 | 252,203 | +3.96% | 494,462 | 497,084 | +0.53% | identical | keep |
+| 6 | Precompute dense ticket-to-production lookup tables for small weighted rules | 252,203 | 302,755 | +20.04% | 497,084 | 575,520 | +15.78% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -429,3 +430,16 @@ Baseline quality statistics:
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. The uncertain-band Japanese gain retained 3.96%, and
   stabilized Fenrin improves 0.53%.
+
+### Round 6: precompute weighted-production ticket tables
+
+- Removed work: binary-searching cumulative weights for every grammar expansion.
+  Rules with total weight at most 256 map each random ticket directly to a byte
+  production index; larger custom rules retain `partition_point`.
+- Japanese measurements: 306,958; 302,755; 294,150
+  (median 302,755; spread 4.35%).
+- Fenrin measurements: 575,520; 575,725; 562,199
+  (median 575,520; spread 2.41%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 20.04%, and Fenrin improves 15.78%.

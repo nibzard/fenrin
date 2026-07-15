@@ -16,6 +16,7 @@ const MAX_SYMBOLS: usize = 64;
 const MAX_REWRITES: usize = 64;
 const MAX_CONSTRAINTS: usize = 128;
 const MAX_WEIGHT: usize = 1_000_000;
+const MAX_DENSE_RULE_WEIGHT: usize = 256;
 
 type RuleNames = HashMap<String, usize>;
 type RawRule = (usize, String, String);
@@ -397,9 +398,21 @@ fn compile_rules(
             });
         }
 
+        let production_by_ticket = (total_weight <= MAX_DENSE_RULE_WEIGHT).then(|| {
+            let mut tickets = Vec::with_capacity(total_weight);
+            for (production, compiled) in productions.iter().enumerate() {
+                tickets.resize(
+                    compiled.upper_bound,
+                    u8::try_from(production).expect("production limit fits in u8"),
+                );
+            }
+            tickets.into_boxed_slice()
+        });
+
         rules.push(Rule {
             productions,
             total_weight,
+            production_by_ticket,
         });
     }
 

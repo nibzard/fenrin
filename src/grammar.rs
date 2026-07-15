@@ -46,6 +46,7 @@ pub(crate) struct Production {
 pub(crate) struct Rule {
     pub(crate) productions: Vec<Production>,
     pub(crate) total_weight: usize,
+    pub(crate) production_by_ticket: Option<Box<[u8]>>,
 }
 
 #[derive(Clone, Debug)]
@@ -269,6 +270,9 @@ impl Grammar {
     fn pick_production(&self, rule: usize, rng: &mut Rng) -> usize {
         let rule = &self.rules[rule];
         let ticket = rng.index(rule.total_weight);
+        if let Some(productions) = &rule.production_by_ticket {
+            return usize::from(productions[ticket]);
+        }
         rule.productions
             .partition_point(|production| production.upper_bound <= ticket)
     }
