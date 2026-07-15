@@ -139,11 +139,12 @@ impl Grammar {
         for _ in 0..SHAPE_ATTEMPTS {
             let start_production = self.pick_production(self.start, rng);
             let mut candidates = Vec::with_capacity(CANDIDATE_POOL);
+            let mut units = Vec::new();
 
             for _ in 0..FILL_ATTEMPTS {
-                let Some(mut units) = self.generate_underlying(start_production, rng) else {
+                if !self.generate_underlying(start_production, &mut units, rng) {
                     continue;
-                };
+                }
                 if !self.apply_rewrites(&mut units) || !self.is_well_formed(&units) {
                     continue;
                 }
@@ -170,10 +171,14 @@ impl Grammar {
         Err("grammar could not produce a well-formed name")
     }
 
-    fn generate_underlying(&self, start_production: usize, rng: &mut Rng) -> Option<Vec<Unit>> {
-        let mut units = Vec::new();
-        self.expand_production(self.start, start_production, 0, &mut units, rng)
-            .then_some(units)
+    fn generate_underlying(
+        &self,
+        start_production: usize,
+        units: &mut Vec<Unit>,
+        rng: &mut Rng,
+    ) -> bool {
+        units.clear();
+        self.expand_production(self.start, start_production, 0, units, rng)
     }
 
     fn pick_production(&self, rule: usize, rng: &mut Rng) -> usize {

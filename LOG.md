@@ -19,6 +19,9 @@ and accept/reject thresholds remain frozen for the run.
   or when the Japanese secondary profile regresses by more than 2%.
 - Correctness gates: formatting, all-target tests, clippy with warnings denied, and
   byte-for-byte comparison of 1,000 seeded outputs for both profiles.
+- After round 3 exposed CPU ramp-up, each later profile series is preceded by one
+  unrecorded invocation of the same frozen benchmark command. Only the following
+  three runs are used for decisions.
 - The benchmark source and commands are unchanged throughout the loop.
 
 ## Environment and starting verification
@@ -39,6 +42,8 @@ and accept/reject thresholds remain frozen for the run.
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | 0 | Baseline | — | 94,987 | — | — | 47,757 | — | baseline | keep |
 | 1 | Precompute feature-selector membership instead of hashing strings during every constraint scan | 94,987 | 272,491 | +186.87% | 47,757 | 79,972 | +67.46% | identical | keep |
+| 2 | Render only the selected elite candidate instead of all candidates | 272,491 | 283,881 | +4.18% | 79,972 | 77,455 | -3.15% | identical | reject |
+| 3 | Reuse the underlying-unit allocation across fill attempts | 272,491 | 325,193 | +19.34% | 79,972 | 84,071 | +5.13% | identical | keep |
 
 Baseline raw measurements (names/second):
 
@@ -64,6 +69,38 @@ Baseline quality statistics were identical across all repetitions:
 - Quality: all six reported statistics fields match the baseline exactly.
 - Decision: accepted; the primary improvement exceeds 5%, and the secondary
   profile improves rather than regresses.
+
+### Round 2: defer rendering until elite selection
+
+- Removed work: rendering and `String` allocation for the 15 candidates not
+  selected from a full 16-candidate pool.
+- Fenrin measurements: 273,703; 282,622; 283,881; 300,412; 293,242
+  (five-run median 283,881).
+- Japanese measurements: 76,755; 79,483; 74,976; 80,113; 77,455
+  (five-run median 77,455).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: rejected. The uncertain-band primary gain passed the five-run +3%
+  requirement, but Japanese regressed 3.15%, beyond the allowed 2%.
+- Stability note: the five-run spreads were 9.76% for Fenrin and 6.85% for
+  Japanese. Read-only analysis processes were finished before later rounds;
+  no benchmarks had been run by those processes.
+
+### Round 3: reuse the underlying-unit buffer
+
+- Removed work: allocating and growing a new `Vec<Unit>` for every fill attempt,
+  including attempts later rejected by hard constraints.
+- Initial Fenrin measurements: 299,443; 320,239; 337,910. Their 12.85% spread
+  triggered stabilization rather than an immediate decision.
+- Stabilized Fenrin measurements: 325,193; 324,129; 330,882
+  (median 325,193; spread 2.08%).
+- Initial Japanese measurements: 85,686; 84,607; 84,442.
+- Stabilized Japanese measurements: 84,071; 82,965; 85,034
+  (median 84,071; spread 2.49%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: accepted. The stabilized primary gain is 19.34%, and Japanese
+  improves 5.13%.
 
 ## Final verification
 
