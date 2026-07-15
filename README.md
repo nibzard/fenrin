@@ -1,5 +1,7 @@
 # fenrin
 
+![Fenrin creature against a red landscape](assets/fenrin.png)
+
 Generate pronounceable fictional names and short verification phrases from sound rules—not dictionaries or corpora.
 
 ## Quick start
