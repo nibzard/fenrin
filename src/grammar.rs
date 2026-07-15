@@ -237,6 +237,21 @@ impl Grammar {
             if rewrite.pattern.is_empty() {
                 return false;
             }
+
+            if rewrite.pattern.len() == rewrite.replacement.len() {
+                let mut index = 0;
+                while index < units.len() {
+                    if pattern_matches(&rewrite.pattern, units, index, self) {
+                        units[index..index + rewrite.pattern.len()]
+                            .copy_from_slice(&rewrite.replacement);
+                        index += rewrite.pattern.len();
+                    } else {
+                        index += 1;
+                    }
+                }
+                continue;
+            }
+
             let mut rewritten = Vec::with_capacity(units.len());
             let mut index = 0;
 

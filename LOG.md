@@ -295,3 +295,71 @@ path for equal-length rewrites or a reusable rewrite scratch buffer. Round 6's
 10.59% Japanese-only gain and round 8's 6.49% Japanese-only gain show that this
 profile still has optimization headroom, but neither change met this loop's
 Fenrin-primary acceptance rule.
+
+---
+
+# Japanese-primary 20-round optimization log
+
+Date: 2026-07-15
+
+Branch: `perf/japanese-generation-20-rounds`
+
+Primary profile: `japanese`
+
+Secondary regression guard: `fenrin`
+
+This second name-generation loop uses the same correctness and measurement
+procedure from `docs/optimization-loop.md`. The requested fixed count of twenty
+candidates overrides the document's eight-candidate cap and three-rejection
+early stop. All candidates remain small and reversible; the 2%/3%/5% decision
+thresholds, 2% secondary-regression limit, seeded output checks, and quality
+invariants remain enforced.
+
+## Frozen procedure
+
+- Primary command: `cargo run --release --example benchmark -- --config japanese 100000`
+- Secondary command: `cargo run --release --example benchmark -- 100000`
+- Each series receives one unrecorded invocation of the same command to stabilize
+  CPU state, followed by three recorded measurements.
+- Primary changes of 2–5% are extended to five recorded measurements and must
+  retain at least a 3% median gain.
+- The benchmark source, commands, profiles, and generation constants are frozen.
+
+## Starting verification and baseline
+
+- `cargo fmt -- --check`: pass.
+- `cargo test --all-targets`: pass (53 tests).
+- `cargo clippy --all-targets -- -D warnings`: pass.
+- Both 1,000-name seeded snapshots retain the hashes recorded by the first loop.
+
+| Iteration | Hypothesis | Japanese before | Japanese after | Primary change | Fenrin before | Fenrin after | Secondary change | Quality | Decision |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| 0 | Baseline from the accepted first-loop implementation | — | 107,239 | — | — | 497,796 | — | baseline | keep |
+| 1 | Apply equal-length rewrites in place instead of rebuilding the unit vector | 107,239 | 146,685 | +36.78% | 497,796 | 488,431 | -1.88% | identical | keep |
+
+Baseline raw measurements and spread:
+
+- Japanese: 106,757; 107,239; 107,676 (median 107,239; spread 0.86%).
+- Fenrin: 485,787; 497,796; 507,526 (median 497,796; spread 4.47%).
+
+Baseline quality statistics:
+
+| Profile | duplicate % | pair matches | collision bits | effective diversity | max freq |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| japanese | 16.447% | 22,833 | 17.74 | 2.190e5 | 9 |
+| fenrin | 20.989% | 31,211 | 17.29 | 1.602e5 | 10 |
+
+## Japanese-primary iterations
+
+### Round 1: apply equal-length rewrites in place
+
+- Removed work: seven temporary vector allocations and seven full vector rebuilds
+  per Japanese candidate; all Japanese rewrites are two units to two units.
+- Japanese measurements: 150,545; 145,258; 146,685
+  (median 146,685; spread 3.64%).
+- Fenrin measurements: 488,431; 485,535; 496,183
+  (median 488,431; spread 2.19%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 36.78%; Fenrin regresses 1.88%, within
+  the 2% secondary limit.
