@@ -348,6 +348,13 @@ invariants remain enforced.
 | 11 | Render in one pass using unit count as the initial string capacity | 410,200 | 391,638 | -4.53% | 968,668 | 918,765 | -5.15% | identical | reject |
 | 12 | Fuse a complete `no-repeat` and `max-run` hard-constraint pair | 410,200 | 413,935 | +0.91% | 968,668 | 1,001,187 | +3.36% | identical | reject |
 | 13 | Remove expansion guards made unreachable by validated static bounds | 410,200 | 448,118 | +9.24% | 968,668 | 1,000,200 | +3.25% | identical | keep |
+| 14 | Enable ThinLTO for cross-crate release optimization | 448,118 | 449,816 | +0.38% | 1,000,200 | 1,039,748 | +3.95% | identical | reject |
+| 15 | Store immutable production symbol lists as boxed slices | 448,118 | 444,522 | -0.80% | 1,000,200 | 1,021,286 | +2.11% | identical | reject |
+| 16 | Keep the four elite candidate records in a fixed stack array | 448,118 | 443,295 | -1.08% | 1,000,200 | 999,197 | -0.10% | identical | reject |
+| 17 | Narrow generated units from machine words to `u16` indices | 448,118 | 455,591 | +1.67% | 1,000,200 | 995,669 | -0.45% | identical | reject |
+| 18 | Drop parse-only feature maps and retain a compact spelling vector | 448,118 | 450,675 | +0.57% | 1,000,200 | 1,057,710 | +5.75% | identical | reject |
+| 19 | Encode empty pair-rewrite cells with a private unit sentinel | 448,118 | 454,597 | +1.45% | 1,000,200 | 1,024,671 | +2.45% | identical | reject |
+| 20 | Encode pair-rewrite replacements as compact `u16` keys | 448,118 | 455,072 | +1.55% | 1,000,200 | 1,021,440 | +2.12% | identical | reject |
 
 Baseline raw measurements and spread:
 
@@ -548,3 +555,201 @@ Baseline quality statistics:
 - Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 9.24%, and Fenrin improves 3.25%.
+
+### Round 14: enable ThinLTO
+
+- Proposed work removal: expose the library and benchmark example to cross-crate
+  inlining and optimization during release linking.
+- Japanese measurements: 465,037; 449,816; 447,353
+  (median 449,816; spread 3.95%).
+- Fenrin measurements: 1,039,748; 1,032,932; 1,042,380
+  (median 1,039,748; spread 0.91%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese improves only 0.38%, below the 2% threshold;
+  the release-profile override was removed.
+
+### Round 15: box immutable production symbols
+
+- Proposed work removal: drop the unused capacity word from every immutable
+  production symbol list to reduce compiled grammar metadata.
+- Japanese measurements: 444,522; 450,867; 439,298
+  (median 444,522; spread 2.63%).
+- Fenrin measurements: 1,035,938; 1,021,286; 1,013,134
+  (median 1,021,286; spread 2.25%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese regresses 0.80%, so the original `Vec` storage
+  was restored.
+
+### Round 16: use a fixed elite-candidate array
+
+- Proposed work removal: eliminate the four-record candidate `Vec` allocation
+  by maintaining the stable elite prefix in a fixed stack array.
+- Initial Japanese measurements: 445,406; 441,155; 412,634. Their 7.94% spread
+  triggered stabilization; the second replacement also exceeded 5%.
+- Stabilized Japanese measurements: 440,593; 443,295; 447,048
+  (median 443,295; spread 1.47%).
+- Fenrin measurements: 992,501; 1,009,971; 999,197
+  (median 999,197; spread 1.76%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Stabilized Japanese regresses 1.08%, and Fenrin is flat;
+  the heap-backed elite vector was restored.
+
+### Round 17: narrow generated units to `u16`
+
+- Proposed work removal: reduce each unit from eight bytes to two while retaining
+  `u16::MAX` as the boundary sentinel; the parser permits at most 256 segments.
+- Japanese measurements: 452,801; 470,594; 459,673; 453,079; 455,591
+  (five-run median 455,591; spread 3.93%).
+- Fenrin measurements: 999,404; 989,891; 991,404; 995,669; 1,007,578
+  (five-run median 995,669; spread 1.79%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. The uncertain Japanese signal settles at 1.67%, below the
+  3% retention requirement, while Fenrin regresses 0.45%.
+
+### Round 18: retain only runtime spellings
+
+- Proposed work removal: discard per-segment feature hash maps after selectors
+  compile and render from a compact contiguous spelling vector.
+- Japanese measurements: 443,368; 457,422; 450,675
+  (median 450,675; spread 3.17%).
+- Initial Fenrin measurements exceeded the stability limit; stabilized
+  measurements: 1,063,936; 1,045,697; 1,057,710
+  (median 1,057,710; spread 1.74%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese improves only 0.57%, below the primary floor,
+  despite a 5.75% Fenrin gain; the original representation was restored.
+
+### Round 19: halve pair-rewrite table entries
+
+- Proposed work removal: replace two-word `Option<Unit>` cells with a one-word
+  private sentinel representation in the dense fused pair-rewrite table.
+- Japanese measurements: 452,394; 455,351; 454,597
+  (median 454,597; spread 0.65%).
+- Fenrin measurements: 1,041,470; 1,024,671; 1,013,127
+  (median 1,024,671; spread 2.80%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese improves 1.45%, below the 2% floor; the sentinel
+  representation was removed.
+
+### Round 20: encode pair-rewrite cells as `u16` keys
+
+- Proposed work removal: shrink every fused pair-rewrite table cell from a
+  two-word optional unit to a two-byte key, reserving zero for no replacement.
+- Japanese measurements: 455,681; 455,072; 455,066
+  (median 455,072; spread 0.14%).
+- Fenrin measurements: 1,044,401; 1,021,440; 1,013,352
+  (median 1,021,440; spread 3.06%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese improves 1.55%, below the 2% floor; the compact
+  key table was removed.
+
+## Final verification
+
+### Outcome
+
+| Profile | Starting median | Ending accepted median | Cumulative change | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| japanese | 107,239 | 448,118 | +317.87% | 4.18x |
+| fenrin | 497,796 | 1,000,200 | +100.93% | 2.01x |
+
+Nine hypotheses were accepted:
+
+1. Apply equal-length rewrites in place (round 1).
+2. Compile literal rewrite patterns as units (round 2).
+3. Fuse independent ordered pair rewrites (round 4).
+4. Compact generated units to one machine word (round 5).
+5. Precompute weighted-production ticket tables (round 6).
+6. Specialize terminal-choice rule expansion (round 7).
+7. Retain only the stable four-candidate elite (round 9).
+8. Stop soft scoring at the full elite pool's cutoff (round 10).
+9. Trust parser-validated expansion bounds (round 13).
+
+Eleven hypotheses were rejected and fully reverted:
+
+1. Directly specialize two-unit fallback rewrites (round 3).
+2. Reserve the maximum validated expansion capacity (round 8).
+3. Render with approximate instead of exact capacity (round 11).
+4. Fuse the Japanese hard-constraint pair (round 12).
+5. Enable ThinLTO (round 14).
+6. Box immutable production symbol lists (round 15).
+7. Put the four elite records in a fixed stack array (round 16).
+8. Narrow generated units to `u16` (round 17).
+9. Retain only spellings after selector compilation (round 18).
+10. Use a private empty-cell sentinel in the pair-rewrite table (round 19).
+11. Encode pair-rewrite table cells as `u16` keys (round 20).
+
+### Correctness and compatibility
+
+- `cargo fmt -- --check`: pass.
+- `cargo test --all-targets`: pass (53 tests).
+- `cargo clippy --all-targets -- -D warnings`: pass.
+- Final Fenrin and Japanese 1,000-name snapshots compare byte-for-byte with the
+  frozen pre-loop files.
+- Fenrin snapshot SHA-256:
+  `6da69b54e4638bd55021a2f78405afc0ae3b55b09ddd61135b5358710566a17a`.
+- Japanese snapshot SHA-256:
+  `133e62c7e1b9d2903fd9dcb9def6d0d9dabe8504400b82c0e96200971ce4d3b9`.
+- Every iteration preserved duplicate percentage, pair matches, collision bits,
+  effective diversity, and maximum frequency exactly.
+- `examples/benchmark.rs`, bundled profile files, generation constants, and the
+  public API were unchanged.
+
+### Required large benchmarks
+
+Default profile (`cargo run --release --example benchmark`):
+
+| Names | names/second | ns/name | unique | duplicate % | collision bits | effective diversity | max freq |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 932,787 | 1,072 | 995 | 0.500% | 16.61 | 9.990e4 | 2 |
+| 10,000 | 1,007,317 | 993 | 9,714 | 2.860% | 17.34 | 1.655e5 | 4 |
+| 1,000,000 | 1,037,625 | 964 | 412,401 | 58.760% | 17.29 | 1.599e5 | 83 |
+
+Japanese profile at 1,000,000 names:
+
+- 454,527 names/second; 2,200 ns/name; 499,551 unique; 50.045%
+  duplicates; 2,265,668 matching pairs; 17.75 collision bits; 2.207e5
+  effective diversity; maximum frequency 54.
+
+SAS final benchmark:
+
+| Phrases | phrases/second | ns/phrase |
+| ---: | ---: | ---: |
+| 1,000 | 41,311,530 | 24 |
+| 10,000 | 41,097,213 | 24 |
+| 1,000,000 | 41,861,352 | 24 |
+
+### Bundled-profile smoke test
+
+Every required 100,000-name release benchmark completed successfully:
+
+| Profile | names/second |
+| --- | ---: |
+| fenrin | 1,053,065 |
+| japanese | 435,277 |
+| ancient-roman | 240,364 |
+| slavic | 381,137 |
+| klingon | 493,199 |
+| oceanic | 309,261 |
+| uralic | 599,024 |
+| caucasian | 352,219 |
+| aurelian | 277,199 |
+| obsidian | 251,065 |
+
+### Remaining opportunities
+
+The largest remaining measured opportunity is profile-dependent rather than a
+clear Japanese-primary win. Dropping parse-only feature maps improved Fenrin by
+5.75% in round 18 but moved Japanese only 0.57%; it belongs in a separate
+Fenrin-primary loop. Compact pair-rewrite cells (rounds 19 and 20) and `u16`
+units (round 17) each produced stable Japanese gains of 1.45–1.67%, below the
+retention threshold. A future loop could profile a sparse context-first rewrite
+dispatch that removes the dense table entirely, or test a combined constraint
+evaluator, but the isolated hard-constraint fusion in round 12 suggests that
+constraint scans now offer less than 1% on Japanese.
