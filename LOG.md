@@ -339,6 +339,7 @@ invariants remain enforced.
 | 2 | Compile literal rewrite patterns as `Unit` sequences instead of generic matchers | 146,685 | 165,287 | +12.68% | 488,431 | 498,803 | +2.12% | identical | keep |
 | 3 | Specialize two-unit rewrites as direct comparisons and assignments | 165,287 | 173,296 | +4.85% | 498,803 | 479,821 | -3.81% | identical | reject |
 | 4 | Fuse statically independent ordered pair rewrites into one adjacency scan | 165,287 | 242,597 | +46.77% | 498,803 | 494,462 | -0.87% | identical | keep |
+| 5 | Compact generated units to one machine word using a boundary sentinel | 242,597 | 252,203 | +3.96% | 494,462 | 497,084 | +0.53% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -413,3 +414,18 @@ Baseline quality statistics:
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 46.77%; Fenrin regresses 0.87%, within
   the secondary limit.
+
+### Round 5: compact generated units
+
+- Removed work: halve the hot `Unit` representation from a 16-byte tagged enum
+  to one machine word, reserving `usize::MAX` as the private boundary sentinel.
+- Japanese measurements: 257,035; 246,808; 252,203; 252,306; 250,255
+  (five-run median 252,203; spread 4.14%).
+- Initial Fenrin measurements: 508,603; 482,518; 496,688; 495,910; 502,004.
+  Their 5.41% spread triggered a replacement stabilized series.
+- Stabilized Fenrin measurements: 497,084; 486,276; 500,601
+  (median 497,084; spread 2.95%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. The uncertain-band Japanese gain retained 3.96%, and
+  stabilized Fenrin improves 0.53%.

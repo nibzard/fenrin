@@ -14,9 +14,19 @@ pub(crate) struct Segment {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Unit {
-    Segment(usize),
-    Boundary,
+pub(crate) struct Unit(usize);
+
+impl Unit {
+    pub(crate) const BOUNDARY: Self = Self(usize::MAX);
+
+    pub(crate) fn segment(index: usize) -> Self {
+        debug_assert_ne!(index, usize::MAX);
+        Self(index)
+    }
+
+    fn segment_index(self) -> Option<usize> {
+        (self != Self::BOUNDARY).then_some(self.0)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -110,17 +120,14 @@ impl PairRewriteTable {
 
     fn unit(key: usize, segment_count: usize) -> Unit {
         if key == segment_count {
-            Unit::Boundary
+            Unit::BOUNDARY
         } else {
-            Unit::Segment(key)
+            Unit::segment(key)
         }
     }
 
     fn key(&self, unit: Unit) -> usize {
-        match unit {
-            Unit::Segment(segment) => segment,
-            Unit::Boundary => self.width - 1,
-        }
+        unit.segment_index().unwrap_or(self.width - 1)
     }
 
     fn apply(&self, units: &mut [Unit]) {
@@ -193,7 +200,7 @@ impl Rng {
 
 impl Selector {
     fn matches(&self, unit: Unit, grammar: &Grammar) -> bool {
-        let Unit::Segment(segment) = unit else {
+        let Some(segment) = unit.segment_index() else {
             return false;
         };
         let _ = grammar;
@@ -204,10 +211,10 @@ impl Selector {
 impl Matcher {
     fn matches(&self, unit: Unit, grammar: &Grammar) -> bool {
         match self {
-            Self::Segment(expected) => unit == Unit::Segment(*expected),
+            Self::Segment(expected) => unit == Unit::segment(*expected),
             Self::Feature(selector) => selector.matches(unit, grammar),
-            Self::Boundary => unit == Unit::Boundary,
-            Self::AnySegment => matches!(unit, Unit::Segment(_)),
+            Self::Boundary => unit == Unit::BOUNDARY,
+            Self::AnySegment => unit != Unit::BOUNDARY,
         }
     }
 }
@@ -293,8 +300,8 @@ impl Grammar {
 
         for symbol in &production.symbols {
             match *symbol {
-                Symbol::Segment(segment) => output.push(Unit::Segment(segment)),
-                Symbol::Boundary => output.push(Unit::Boundary),
+                Symbol::Segment(segment) => output.push(Unit::segment(segment)),
+                Symbol::Boundary => output.push(Unit::BOUNDARY),
                 Symbol::Rule(nested) => {
                     if !self.expand_rule(nested, depth + 1, output, rng) {
                         return false;
@@ -370,7 +377,7 @@ impl Grammar {
                         .copied()
                         .filter(|unit| selector.matches(*unit, self))
                         .all(|unit| {
-                            let Unit::Segment(current) = unit else {
+                            let Some(current) = unit.segment_index() else {
                                 return true;
                             };
                             let differs = previous != Some(current);
@@ -382,7 +389,7 @@ impl Grammar {
                     let mut run = 0;
                     let mut longest = 0;
                     for unit in units {
-                        if *unit == Unit::Boundary {
+                        if *unit == Unit::BOUNDARY {
                             continue;
                         }
                         if selector.matches(*unit, self) {
@@ -423,16 +430,14 @@ impl Grammar {
     fn render(&self, units: &[Unit]) -> String {
         let capacity = units
             .iter()
-            .filter_map(|unit| match unit {
-                Unit::Segment(segment) => Some(self.segments[*segment].spelling.len()),
-                Unit::Boundary => None,
-            })
+            .filter_map(|unit| unit.segment_index())
+            .map(|segment| self.segments[segment].spelling.len())
             .sum();
         let mut output = String::with_capacity(capacity);
 
         for unit in units {
-            if let Unit::Segment(segment) = unit {
-                output.push_str(&self.segments[*segment].spelling);
+            if let Some(segment) = unit.segment_index() {
+                output.push_str(&self.segments[segment].spelling);
             }
         }
 
@@ -456,7 +461,7 @@ fn repeated_matches(selector: &Selector, units: &[Unit], grammar: &Grammar) -> u
         .copied()
         .filter(|unit| selector.matches(*unit, grammar))
     {
-        let Unit::Segment(current) = unit else {
+        let Some(current) = unit.segment_index() else {
             continue;
         };
         if previous == Some(current) {
@@ -487,7 +492,7 @@ fn pattern_count(pattern: &[Matcher], units: &[Unit], grammar: &Grammar) -> u64 
     let surface: Vec<_> = units
         .iter()
         .copied()
-        .filter(|unit| *unit != Unit::Boundary)
+        .filter(|unit| *unit != Unit::BOUNDARY)
         .collect();
     raw_pattern_count(pattern, &surface, grammar)
 }

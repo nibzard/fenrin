@@ -598,9 +598,9 @@ fn compile_rewrites(
         let mut compiled_pattern = Vec::with_capacity(pattern_tokens.len());
         for token in pattern_tokens {
             compiled_pattern.push(if token == "." {
-                Unit::Boundary
+                Unit::BOUNDARY
             } else {
-                Unit::Segment(resolve_segment(token, directive.line, segment_ids)?)
+                Unit::segment(resolve_segment(token, directive.line, segment_ids)?)
             });
         }
 
@@ -628,9 +628,9 @@ fn compile_rewrites(
         if replacement_tokens.as_slice() != ["_"] {
             for token in replacement_tokens {
                 compiled_replacement.push(if token == "." {
-                    Unit::Boundary
+                    Unit::BOUNDARY
                 } else {
-                    Unit::Segment(resolve_segment(token, directive.line, segment_ids)?)
+                    Unit::segment(resolve_segment(token, directive.line, segment_ids)?)
                 });
             }
         }
