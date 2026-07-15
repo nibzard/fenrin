@@ -241,7 +241,9 @@ impl Grammar {
                     continue;
                 }
 
-                let score = self.score(&units);
+                let cutoff = (candidates.len() == ELITE_POOL)
+                    .then(|| candidates.last().expect("full elite pool").0);
+                let score = self.score(&units, cutoff);
                 let insertion = candidates.partition_point(|candidate| candidate.0 <= score);
                 if candidates.len() < ELITE_POOL {
                     candidates.insert(insertion, (score, self.render(&units)));
@@ -421,26 +423,33 @@ impl Grammar {
             })
     }
 
-    fn score(&self, units: &[Unit]) -> u64 {
-        self.soft_constraints
-            .iter()
-            .fold(0_u64, |score, constraint| {
-                let penalty = match constraint {
-                    SoftConstraint::Repeat { selector, weight } => {
-                        repeated_matches(selector, units, self).saturating_mul(*weight)
-                    }
-                    SoftConstraint::Excess {
-                        selector,
-                        free,
-                        weight,
-                    } => (count_matches(selector, units, self).saturating_sub(*free) as u64)
-                        .saturating_mul(*weight),
-                    SoftConstraint::Sequence { pattern, weight } => {
-                        pattern_count(pattern, units, self).saturating_mul(*weight)
-                    }
-                };
-                score.saturating_add(penalty)
-            })
+    fn score(&self, units: &[Unit], cutoff: Option<u64>) -> u64 {
+        if cutoff == Some(0) {
+            return 0;
+        }
+
+        let mut score = 0_u64;
+        for constraint in &self.soft_constraints {
+            let penalty = match constraint {
+                SoftConstraint::Repeat { selector, weight } => {
+                    repeated_matches(selector, units, self).saturating_mul(*weight)
+                }
+                SoftConstraint::Excess {
+                    selector,
+                    free,
+                    weight,
+                } => (count_matches(selector, units, self).saturating_sub(*free) as u64)
+                    .saturating_mul(*weight),
+                SoftConstraint::Sequence { pattern, weight } => {
+                    pattern_count(pattern, units, self).saturating_mul(*weight)
+                }
+            };
+            score = score.saturating_add(penalty);
+            if cutoff.is_some_and(|cutoff| score >= cutoff) {
+                break;
+            }
+        }
+        score
     }
 
     fn render(&self, units: &[Unit]) -> String {

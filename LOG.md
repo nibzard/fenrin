@@ -344,6 +344,7 @@ invariants remain enforced.
 | 7 | Push precompiled units directly for terminal-choice rules | 302,755 | 348,057 | +14.96% | 575,520 | 682,112 | +18.52% | identical | keep |
 | 8 | Reserve the statically validated maximum expansion capacity | 348,057 | 314,671 | -9.59% | 682,112 | 620,077 | -9.09% | identical | reject |
 | 9 | Retain the stable top-four candidates while fills are generated | 348,057 | 391,908 | +12.60% | 682,112 | 890,363 | +30.53% | identical | keep |
+| 10 | Stop monotonic soft scoring once a full elite pool cannot be improved | 391,908 | 410,200 | +4.67% | 890,363 | 968,668 | +8.79% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -489,3 +490,17 @@ Baseline quality statistics:
 - Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 12.60%, and Fenrin improves 30.53%.
+
+### Round 10: stop scoring candidates that cannot enter the elite
+
+- Removed work: evaluating later nonnegative soft penalties after the running
+  saturated score reaches the full elite pool's worst score. A zero worst score
+  skips all soft-constraint scans for later candidates.
+- Japanese measurements: 403,230; 410,200; 410,207; 400,680; 412,602
+  (five-run median 410,200; spread 2.98%).
+- Fenrin measurements: 968,050; 993,611; 967,706; 968,668; 979,932
+  (five-run median 968,668; spread 2.68%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. The uncertain-band Japanese gain retains 4.67%, and
+  Fenrin improves 8.79%.
