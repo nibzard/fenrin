@@ -168,3 +168,7 @@ occurred in reality; making that claim would require a dictionary or corpus.
 Ordinary name generation is creative output, not cryptographic randomness. Use
 SAS mode only as one display component inside a properly designed verification
 protocol.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
