@@ -225,7 +225,8 @@ impl Grammar {
     pub fn generate_name(&self, rng: &mut Rng) -> Result<String, &'static str> {
         for _ in 0..SHAPE_ATTEMPTS {
             let start_production = self.pick_production(self.start, rng);
-            let mut candidates = Vec::with_capacity(CANDIDATE_POOL);
+            let mut candidates: Vec<(u64, String)> = Vec::with_capacity(ELITE_POOL);
+            let mut accepted = 0;
             let mut units = Vec::new();
 
             for _ in 0..FILL_ATTEMPTS {
@@ -236,21 +237,27 @@ impl Grammar {
                     continue;
                 }
 
-                let spelling = self.render(&units);
-                if spelling.is_empty() {
+                if !units.iter().any(|unit| unit.segment_index().is_some()) {
                     continue;
                 }
 
-                candidates.push((self.score(&units), spelling));
-                if candidates.len() == CANDIDATE_POOL {
+                let score = self.score(&units);
+                let insertion = candidates.partition_point(|candidate| candidate.0 <= score);
+                if candidates.len() < ELITE_POOL {
+                    candidates.insert(insertion, (score, self.render(&units)));
+                } else if insertion < ELITE_POOL {
+                    candidates.pop();
+                    candidates.insert(insertion, (score, self.render(&units)));
+                }
+
+                accepted += 1;
+                if accepted == CANDIDATE_POOL {
                     break;
                 }
             }
 
             if !candidates.is_empty() {
-                candidates.sort_by_key(|candidate| candidate.0);
-                let elite = candidates.len().min(ELITE_POOL);
-                let choice = rng.index(elite);
+                let choice = rng.index(candidates.len());
                 return Ok(candidates.swap_remove(choice).1);
             }
         }

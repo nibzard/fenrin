@@ -342,6 +342,8 @@ invariants remain enforced.
 | 5 | Compact generated units to one machine word using a boundary sentinel | 242,597 | 252,203 | +3.96% | 494,462 | 497,084 | +0.53% | identical | keep |
 | 6 | Precompute dense ticket-to-production lookup tables for small weighted rules | 252,203 | 302,755 | +20.04% | 497,084 | 575,520 | +15.78% | identical | keep |
 | 7 | Push precompiled units directly for terminal-choice rules | 302,755 | 348,057 | +14.96% | 575,520 | 682,112 | +18.52% | identical | keep |
+| 8 | Reserve the statically validated maximum expansion capacity | 348,057 | 314,671 | -9.59% | 682,112 | 620,077 | -9.09% | identical | reject |
+| 9 | Retain the stable top-four candidates while fills are generated | 348,057 | 391,908 | +12.60% | 682,112 | 890,363 | +30.53% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -456,3 +458,34 @@ Baseline quality statistics:
 - Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 14.96%, and Fenrin improves 18.52%.
+
+### Round 8: reserve maximum unit capacity
+
+- Proposed work removal: avoid geometric growth by retaining the parser's exact
+  maximum start-rule expansion and reserving that capacity once per name.
+- Japanese measurements: 322,595; 314,671; 313,445
+  (median 314,671; spread 2.92%).
+- Fenrin measurements: 620,077; 635,283; 600,832
+  (median 620,077; spread 5.73%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese regresses 9.59%, and Fenrin regresses 9.09%; the
+  larger retained allocation costs more than the avoided growth.
+
+### Round 9: retain the stable top-four candidates
+
+- Removed work: rendering and retaining all sixteen accepted candidates, then
+  stable-sorting them. The generator now maintains only the best four in stable
+  `(score, acceptance order)` order while still consuming all sixteen fills.
+- Initial Japanese measurements: 374,280; 390,599; 402,145. Their 7.44% spread
+  triggered a replacement series.
+- Second Japanese measurements: 398,570; 371,089; 404,697. This series remained
+  unstable, so the environment was warmed again.
+- Stabilized Japanese measurements: 396,851; 391,908; 389,557
+  (median 391,908; spread 1.87%).
+- The matching Fenrin guard series also varied during stabilization. Its final
+  replacement measurements were 887,317; 890,363; 913,475
+  (median 890,363; spread 2.95%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 12.60%, and Fenrin improves 30.53%.
