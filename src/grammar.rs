@@ -40,8 +40,7 @@ pub(crate) struct Rule {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Selector {
-    pub(crate) key: String,
-    pub(crate) value: String,
+    pub(crate) members: Box<[u8]>,
 }
 
 #[derive(Clone, Debug)]
@@ -119,7 +118,8 @@ impl Selector {
         let Unit::Segment(segment) = unit else {
             return false;
         };
-        grammar.segments[segment].features.get(&self.key) == Some(&self.value)
+        let _ = grammar;
+        self.members[segment] != 0
     }
 }
 

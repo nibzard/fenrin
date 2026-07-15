@@ -775,20 +775,23 @@ fn compile_selector(
 ) -> Result<Selector, String> {
     validate_feature_atom(key, line)?;
     validate_feature_atom(value, line)?;
-    if !segments.iter().any(|segment| {
-        segment
-            .features
-            .get(key)
-            .is_some_and(|found| found == value)
-    }) {
+    let members: Box<[_]> = segments
+        .iter()
+        .map(|segment| {
+            u8::from(
+                segment
+                    .features
+                    .get(key)
+                    .is_some_and(|found| found == value),
+            )
+        })
+        .collect();
+    if !members.contains(&1) {
         return Err(format!(
             "line {line}: feature selector `{key}={value}` matches no segment"
         ));
     }
-    Ok(Selector {
-        key: key.to_owned(),
-        value: value.to_owned(),
-    })
+    Ok(Selector { members })
 }
 
 fn resolve_segment(
