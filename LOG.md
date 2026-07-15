@@ -345,6 +345,9 @@ invariants remain enforced.
 | 8 | Reserve the statically validated maximum expansion capacity | 348,057 | 314,671 | -9.59% | 682,112 | 620,077 | -9.09% | identical | reject |
 | 9 | Retain the stable top-four candidates while fills are generated | 348,057 | 391,908 | +12.60% | 682,112 | 890,363 | +30.53% | identical | keep |
 | 10 | Stop monotonic soft scoring once a full elite pool cannot be improved | 391,908 | 410,200 | +4.67% | 890,363 | 968,668 | +8.79% | identical | keep |
+| 11 | Render in one pass using unit count as the initial string capacity | 410,200 | 391,638 | -4.53% | 968,668 | 918,765 | -5.15% | identical | reject |
+| 12 | Fuse a complete `no-repeat` and `max-run` hard-constraint pair | 410,200 | 413,935 | +0.91% | 968,668 | 1,001,187 | +3.36% | identical | reject |
+| 13 | Remove expansion guards made unreachable by validated static bounds | 410,200 | 448,118 | +9.24% | 968,668 | 1,000,200 | +3.25% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -504,3 +507,44 @@ Baseline quality statistics:
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. The uncertain-band Japanese gain retains 4.67%, and
   Fenrin improves 8.79%.
+
+### Round 11: render with an approximate capacity
+
+- Proposed work removal: eliminate the exact rendered-byte-length scan and use
+  the unit count as the initial `String` capacity before the rendering pass.
+- Initial Japanese measurements: 367,397; 392,502; 369,167. Their 6.83% spread
+  triggered a replacement stabilized series.
+- Stabilized Japanese measurements: 391,638; 399,058; 389,251
+  (median 391,638; spread 2.52%).
+- Fenrin measurements: 918,765; 924,332; 916,209
+  (median 918,765; spread 0.89%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese regresses 4.53%, and Fenrin regresses 5.15%;
+  string growth costs more than the removed sizing scan. Exact sizing restored.
+
+### Round 12: fuse the Japanese hard-constraint pair
+
+- Proposed work removal: evaluate a grammar whose complete hard-constraint list
+  is `no-repeat` followed by `max-run` in one unit scan instead of two.
+- Japanese measurements: 413,935; 411,971; 419,833
+  (median 413,935; spread 1.91%).
+- Fenrin measurements: 996,758; 1,023,181; 1,001,187
+  (median 1,001,187; spread 2.65%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: rejected. Japanese improves only 0.91%, below the 2% threshold;
+  the specialized path was removed.
+
+### Round 13: remove validated expansion guards
+
+- Removed work: checking recursion depth, expanded length, and propagated
+  success during every nested rule expansion after parsing has already proved
+  an acyclic rule graph and a maximum start expansion of 64 units.
+- Japanese measurements: 454,005; 443,743; 448,118
+  (median 448,118; spread 2.31%).
+- Fenrin measurements: 976,194; 1,011,447; 1,000,200
+  (median 1,000,200; spread 3.61%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 9.24%, and Fenrin improves 3.25%.

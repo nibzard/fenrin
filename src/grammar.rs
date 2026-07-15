@@ -4,7 +4,6 @@ const CANDIDATE_POOL: usize = 16;
 const ELITE_POOL: usize = 4;
 const SHAPE_ATTEMPTS: usize = 8;
 const FILL_ATTEMPTS: usize = 64;
-const MAX_EXPANSION_DEPTH: usize = 128;
 pub(crate) const MAX_UNITS: usize = 64;
 
 #[derive(Clone, Debug)]
@@ -230,9 +229,7 @@ impl Grammar {
             let mut units = Vec::new();
 
             for _ in 0..FILL_ATTEMPTS {
-                if !self.generate_underlying(start_production, &mut units, rng) {
-                    continue;
-                }
+                self.generate_underlying(start_production, &mut units, rng);
                 if !self.apply_rewrites(&mut units) || !self.is_well_formed(&units) {
                     continue;
                 }
@@ -267,14 +264,9 @@ impl Grammar {
         Err("grammar could not produce a well-formed name")
     }
 
-    fn generate_underlying(
-        &self,
-        start_production: usize,
-        units: &mut Vec<Unit>,
-        rng: &mut Rng,
-    ) -> bool {
+    fn generate_underlying(&self, start_production: usize, units: &mut Vec<Unit>, rng: &mut Rng) {
         units.clear();
-        self.expand_production(self.start, start_production, 0, units, rng)
+        self.expand_production(self.start, start_production, units, rng);
     }
 
     fn pick_production(&self, rule: usize, rng: &mut Rng) -> usize {
@@ -287,52 +279,31 @@ impl Grammar {
             .partition_point(|production| production.upper_bound <= ticket)
     }
 
-    fn expand_rule(
-        &self,
-        rule: usize,
-        depth: usize,
-        output: &mut Vec<Unit>,
-        rng: &mut Rng,
-    ) -> bool {
-        if depth >= MAX_EXPANSION_DEPTH {
-            return false;
-        }
-
+    fn expand_rule(&self, rule: usize, output: &mut Vec<Unit>, rng: &mut Rng) {
         let production = self.pick_production(rule, rng);
         if let Some(terminals) = &self.rules[rule].terminal_units {
             output.push(terminals[production]);
-            return output.len() <= MAX_UNITS;
+            return;
         }
-        self.expand_production(rule, production, depth, output, rng)
+        self.expand_production(rule, production, output, rng);
     }
 
     fn expand_production(
         &self,
         rule: usize,
         production: usize,
-        depth: usize,
         output: &mut Vec<Unit>,
         rng: &mut Rng,
-    ) -> bool {
+    ) {
         let production = &self.rules[rule].productions[production];
 
         for symbol in &production.symbols {
             match *symbol {
                 Symbol::Segment(segment) => output.push(Unit::segment(segment)),
                 Symbol::Boundary => output.push(Unit::BOUNDARY),
-                Symbol::Rule(nested) => {
-                    if !self.expand_rule(nested, depth + 1, output, rng) {
-                        return false;
-                    }
-                }
-            }
-
-            if output.len() > MAX_UNITS {
-                return false;
+                Symbol::Rule(nested) => self.expand_rule(nested, output, rng),
             }
         }
-
-        true
     }
 
     fn apply_rewrites(&self, units: &mut Vec<Unit>) -> bool {
