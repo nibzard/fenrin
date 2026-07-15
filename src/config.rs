@@ -51,13 +51,13 @@ enum RawKind {
     Soft(String),
 }
 
-pub(crate) fn load(path: &Path) -> Result<Grammar, String> {
+pub fn load(path: &Path) -> Result<Grammar, String> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("could not read {}: {error}", path.display()))?;
     parse(&source).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub(crate) fn parse(source: &str) -> Result<Grammar, String> {
+pub fn parse(source: &str) -> Result<Grammar, String> {
     if source.len() > MAX_CONFIG_BYTES {
         return Err(format!(
             "config exceeds the {MAX_CONFIG_BYTES}-byte size limit"

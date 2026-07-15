@@ -3,11 +3,12 @@ const VOWELS: [char; 4] = ['a', 'e', 'o', 'u'];
 const MEDIALS: [char; 8] = ['d', 'f', 'g', 'k', 'l', 'm', 'n', 's'];
 const CODAS: [char; 8] = ['f', 'k', 'm', 'n', 'p', 'r', 's', 'z'];
 
-pub(crate) const VERSION: &str = "fenrin-sas-v1";
-pub(crate) const SAS_BITS: usize = 40;
-pub(crate) const SAS_BYTES: usize = SAS_BITS / 8;
+pub const VERSION: &str = "fenrin-sas-v1";
+pub const SAS_BITS: usize = 40;
+pub const SAS_BYTES: usize = SAS_BITS / 8;
+pub const WORD_COUNT: usize = 1024;
 
-pub(crate) fn encode(bytes: [u8; SAS_BYTES]) -> String {
+pub fn encode(bytes: [u8; SAS_BYTES]) -> String {
     let value = u64::from_be_bytes([0, 0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]]);
     let mut phrase = String::with_capacity(23);
 
@@ -19,6 +20,16 @@ pub(crate) fn encode(bytes: [u8; SAS_BYTES]) -> String {
     }
 
     phrase
+}
+
+pub fn wordlist() -> Vec<String> {
+    (0..WORD_COUNT)
+        .map(|index| {
+            let mut word = String::with_capacity(5);
+            encode_word(index as u16, &mut word);
+            word
+        })
+        .collect()
 }
 
 fn encode_word(index: u16, output: &mut String) {
@@ -71,6 +82,54 @@ mod tests {
         }
 
         assert_eq!(words.len(), 1024);
+    }
+
+    #[test]
+    fn wordlist_matches_the_encoder_in_index_order() {
+        let words = wordlist();
+
+        assert_eq!(words.len(), WORD_COUNT);
+        for (index, word) in words.iter().enumerate() {
+            let mut expected = String::new();
+            encode_word(index as u16, &mut expected);
+            assert_eq!(*word, expected);
+        }
+    }
+
+    #[test]
+    fn version_one_wordlist_has_a_stable_digest() {
+        const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+        const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+        // FNV-1a over the exact newline-delimited `--sas-words` representation.
+        let mut digest = FNV_OFFSET_BASIS;
+        for word in wordlist() {
+            for byte in word.bytes().chain(std::iter::once(b'\n')) {
+                digest ^= u64::from(byte);
+                digest = digest.wrapping_mul(FNV_PRIME);
+            }
+        }
+
+        assert_eq!(digest, 0x1e19_8cb7_854a_7055);
+    }
+
+    #[test]
+    fn any_two_codewords_differ_in_at_least_two_letters() {
+        let words = wordlist();
+
+        for (index, left) in words.iter().enumerate() {
+            for right in &words[index + 1..] {
+                let distance = left
+                    .bytes()
+                    .zip(right.bytes())
+                    .filter(|(a, b)| a != b)
+                    .count();
+                assert!(
+                    distance >= 2,
+                    "{left} and {right} differ only in one letter"
+                );
+            }
+        }
     }
 
     #[test]

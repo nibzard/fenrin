@@ -1,7 +1,3 @@
-mod config;
-mod grammar;
-mod sas;
-
 use std::collections::HashSet;
 use std::env;
 use std::io::{self, BufWriter, Write};
@@ -9,35 +5,27 @@ use std::path::{Path, PathBuf};
 use std::process::{self, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use grammar::{Grammar, Rng};
+use fenrin::grammar::{Grammar, Rng};
+use fenrin::{BUNDLED_CONFIGS, config, sas};
 
-const USAGE: &str =
-    "Usage: fenrin [--config <name-or-path>] <count>\n       fenrin -sas|--sas [10-hex-digits]";
+const USAGE: &str = "Usage: fenrin [--config <name-or-path>] [--seed <integer>] <count>\n       fenrin -sas|--sas [10-hex-digits]\n       fenrin --sas-words";
 const CONFIG_DIRECTORY: &str = "configs";
 const DEFAULT_CONFIG: &str = "fenrin";
 const MAX_COUNT: usize = 10_000;
 const ATTEMPTS_PER_NAME: usize = 100;
-const BUNDLED_CONFIGS: [(&str, &str); 10] = [
-    ("fenrin.conf", include_str!("../configs/fenrin.conf")),
-    ("japanese.conf", include_str!("../configs/japanese.conf")),
-    (
-        "ancient-roman.conf",
-        include_str!("../configs/ancient-roman.conf"),
-    ),
-    ("slavic.conf", include_str!("../configs/slavic.conf")),
-    ("klingon.conf", include_str!("../configs/klingon.conf")),
-    ("oceanic.conf", include_str!("../configs/oceanic.conf")),
-    ("uralic.conf", include_str!("../configs/uralic.conf")),
-    ("caucasian.conf", include_str!("../configs/caucasian.conf")),
-    ("aurelian.conf", include_str!("../configs/aurelian.conf")),
-    ("obsidian.conf", include_str!("../configs/obsidian.conf")),
-];
 
 #[derive(Debug, PartialEq)]
 enum Command {
     Help,
-    Generate { count: usize, config: PathBuf },
-    Sas { bytes: Option<[u8; sas::SAS_BYTES]> },
+    Generate {
+        count: usize,
+        config: PathBuf,
+        seed: Option<u64>,
+    },
+    Sas {
+        bytes: Option<[u8; sas::SAS_BYTES]>,
+    },
+    SasWords,
 }
 
 fn parse_sas_hex(value: &str) -> Result<[u8; sas::SAS_BYTES], String> {
@@ -61,15 +49,24 @@ fn parse_sas_hex(value: &str) -> Result<[u8; sas::SAS_BYTES], String> {
     Ok(bytes)
 }
 
-fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
+fn parse_args(args: impl Iterator<Item = String>) -> Result<Command, String> {
+    let arguments: Vec<_> = args.collect();
+    if arguments
+        .iter()
+        .any(|argument| matches!(argument.as_str(), "-h" | "--help"))
+    {
+        return Ok(Command::Help);
+    }
+    let mut args = arguments.into_iter();
+
     let mut count = None;
     let mut config = None;
+    let mut seed = None;
 
     while let Some(argument) = args.next() {
         match argument.as_str() {
-            "-h" | "--help" => return Ok(Command::Help),
             "-sas" | "--sas" => {
-                if count.is_some() || config.is_some() {
+                if count.is_some() || config.is_some() || seed.is_some() {
                     return Err("`--sas` cannot be combined with name generation".to_owned());
                 }
                 let bytes = args.next().map(|value| parse_sas_hex(&value)).transpose()?;
@@ -77,6 +74,28 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Command, String>
                     return Err("`--sas` accepts at most one value".to_owned());
                 }
                 return Ok(Command::Sas { bytes });
+            }
+            "--sas-words" => {
+                if count.is_some() || config.is_some() || seed.is_some() {
+                    return Err("`--sas-words` cannot be combined with name generation".to_owned());
+                }
+                if args.next().is_some() {
+                    return Err("`--sas-words` accepts no value".to_owned());
+                }
+                return Ok(Command::SasWords);
+            }
+            "-s" | "--seed" => {
+                if seed.is_some() {
+                    return Err("seed specified more than once".to_owned());
+                }
+                let value = args
+                    .next()
+                    .ok_or_else(|| "missing value after `--seed`".to_owned())?;
+                seed = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "seed must be a non-negative integer".to_owned())?,
+                );
             }
             "-c" | "--config" => {
                 if config.is_some() {
@@ -109,6 +128,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Command, String>
     Ok(Command::Generate {
         count,
         config: config.unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG)),
+        seed,
     })
 }
 
@@ -201,10 +221,10 @@ fn main() -> ExitCode {
         }
     };
 
-    let (count, config_path) = match command {
+    let (count, config_path, seed) = match command {
         Command::Help => {
             println!(
-                "{USAGE}\n\nGenerate up to {MAX_COUNT} distinct fictional names from a phonological grammar.\nBare names first resolve under ./{CONFIG_DIRECTORY}, then to a bundled profile.\nThe .conf extension is optional; paths containing a directory are loaded unchanged.\nDefault profile: {DEFAULT_CONFIG}\n\nSAS mode ({}) renders 40 bits as four deterministic fictional words.\nWith no value it obtains 40 fresh bits from the operating system.",
+                "{USAGE}\n\nGenerate up to {MAX_COUNT} distinct fictional names from a phonological grammar.\nBare names first resolve under ./{CONFIG_DIRECTORY}, then to a bundled profile.\nThe .conf extension is optional; paths containing a directory are loaded unchanged.\nA `--seed` value makes generation deterministic for a given version and profile; `-s` is an alias.\nDefault profile: {DEFAULT_CONFIG}\n\nSAS mode ({}) renders 40 bits as four deterministic fictional words.\nWith no value it obtains 40 fresh bits from the operating system.\n`--sas-words` prints all 1024 codewords in index order (0 through 1023), one per line.",
                 sas::VERSION
             );
             return ExitCode::SUCCESS;
@@ -224,7 +244,31 @@ fn main() -> ExitCode {
             println!("{}", sas::encode(bytes));
             return ExitCode::SUCCESS;
         }
-        Command::Generate { count, config } => (count, config),
+        Command::SasWords => {
+            let stdout = io::stdout();
+            let mut output = BufWriter::new(stdout.lock());
+            for word in sas::wordlist() {
+                if let Err(error) = writeln!(output, "{word}") {
+                    if error.kind() == io::ErrorKind::BrokenPipe {
+                        return ExitCode::SUCCESS;
+                    }
+                    eprintln!("fenrin: could not write output: {error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+            if let Err(error) = output.flush() {
+                if error.kind() != io::ErrorKind::BrokenPipe {
+                    eprintln!("fenrin: could not write output: {error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+            return ExitCode::SUCCESS;
+        }
+        Command::Generate {
+            count,
+            config,
+            seed,
+        } => (count, config, seed),
     };
     let grammar = match load_grammar(&config_path) {
         Ok(grammar) => grammar,
@@ -234,7 +278,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut rng = Rng::new(entropy_seed());
+    let mut rng = Rng::new(seed.unwrap_or_else(entropy_seed));
     let stdout = io::stdout();
     let mut output = BufWriter::new(stdout.lock());
 
@@ -266,14 +310,14 @@ mod tests {
 
     #[test]
     fn all_bundled_grammars_are_valid() {
-        for (_, source) in BUNDLED_CONFIGS {
+        for &(_, source) in BUNDLED_CONFIGS {
             config::parse(source).unwrap();
         }
     }
 
     #[test]
     fn bundled_profiles_have_stable_bare_names() {
-        for (filename, _) in BUNDLED_CONFIGS {
+        for &(filename, _) in BUNDLED_CONFIGS {
             let bare = filename.strip_suffix(".conf").unwrap();
             assert_eq!(
                 resolve_config_path(Path::new(bare)).file_name(),
@@ -428,17 +472,72 @@ mod tests {
             command(&["12"]),
             Ok(Command::Generate {
                 count: 12,
-                config: PathBuf::from(DEFAULT_CONFIG)
+                config: PathBuf::from(DEFAULT_CONFIG),
+                seed: None
             })
         );
         assert_eq!(
             command(&["--config", "other.conf", "12"]),
             Ok(Command::Generate {
                 count: 12,
-                config: PathBuf::from("other.conf")
+                config: PathBuf::from("other.conf"),
+                seed: None
             })
         );
         assert_eq!(command(&["--help"]), Ok(Command::Help));
+    }
+
+    #[test]
+    fn seed_arguments_parse_into_the_generate_command() {
+        assert_eq!(
+            command(&["--seed", "42", "5"]),
+            Ok(Command::Generate {
+                count: 5,
+                config: PathBuf::from(DEFAULT_CONFIG),
+                seed: Some(42)
+            })
+        );
+        assert_eq!(
+            command(&["--config", "japanese", "--seed", "0", "5"]),
+            Ok(Command::Generate {
+                count: 5,
+                config: PathBuf::from("japanese"),
+                seed: Some(0)
+            })
+        );
+        assert_eq!(
+            command(&["-s", "42", "5"]),
+            Ok(Command::Generate {
+                count: 5,
+                config: PathBuf::from(DEFAULT_CONFIG),
+                seed: Some(42)
+            })
+        );
+    }
+
+    #[test]
+    fn help_is_global_and_order_independent() {
+        assert_eq!(command(&["--sas-words", "--help"]), Ok(Command::Help));
+        assert_eq!(command(&["--sas", "--help"]), Ok(Command::Help));
+        assert_eq!(command(&["invalid", "--help"]), Ok(Command::Help));
+    }
+
+    #[test]
+    fn seed_arguments_reject_invalid_or_mixed_input() {
+        assert!(command(&["--seed", "abc", "5"]).is_err());
+        assert!(command(&["--seed", "-1", "5"]).is_err());
+        assert!(command(&["--seed", "1", "--seed", "2", "5"]).is_err());
+        assert!(command(&["--seed"]).is_err());
+        assert!(command(&["--seed", "1", "--sas"]).is_err());
+    }
+
+    #[test]
+    fn sas_words_arguments_parse_only_in_isolation() {
+        assert_eq!(command(&["--sas-words"]), Ok(Command::SasWords));
+        assert!(command(&["--sas-words", "extra"]).is_err());
+        assert!(command(&["--sas-words", "--sas"]).is_err());
+        assert!(command(&["5", "--sas-words"]).is_err());
+        assert!(command(&["--seed", "1", "--sas-words"]).is_err());
     }
 
     #[test]

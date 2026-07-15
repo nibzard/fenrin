@@ -84,7 +84,7 @@ pub(crate) enum SoftConstraint {
 }
 
 #[derive(Debug)]
-pub(crate) struct Grammar {
+pub struct Grammar {
     pub(crate) segments: Vec<Segment>,
     pub(crate) rules: Vec<Rule>,
     pub(crate) start: usize,
@@ -93,10 +93,10 @@ pub(crate) struct Grammar {
     pub(crate) soft_constraints: Vec<SoftConstraint>,
 }
 
-pub(crate) struct Rng(u64);
+pub struct Rng(u64);
 
 impl Rng {
-    pub(crate) fn new(seed: u64) -> Self {
+    pub fn new(seed: u64) -> Self {
         Self(seed)
     }
 
@@ -135,7 +135,7 @@ impl Matcher {
 }
 
 impl Grammar {
-    pub(crate) fn generate_name(&self, rng: &mut Rng) -> Result<String, &'static str> {
+    pub fn generate_name(&self, rng: &mut Rng) -> Result<String, &'static str> {
         for _ in 0..SHAPE_ATTEMPTS {
             let start_production = self.pick_production(self.start, rng);
             let mut candidates = Vec::with_capacity(CANDIDATE_POOL);
