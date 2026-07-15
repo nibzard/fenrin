@@ -390,7 +390,7 @@ fn compile_rules(
             }
 
             productions.push(Production {
-                weight,
+                upper_bound: total_weight,
                 symbols: compiled,
             });
         }

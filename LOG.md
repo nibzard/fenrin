@@ -44,6 +44,7 @@ and accept/reject thresholds remain frozen for the run.
 | 1 | Precompute feature-selector membership instead of hashing strings during every constraint scan | 94,987 | 272,491 | +186.87% | 47,757 | 79,972 | +67.46% | identical | keep |
 | 2 | Render only the selected elite candidate instead of all candidates | 272,491 | 283,881 | +4.18% | 79,972 | 77,455 | -3.15% | identical | reject |
 | 3 | Reuse the underlying-unit allocation across fill attempts | 272,491 | 325,193 | +19.34% | 79,972 | 84,071 | +5.13% | identical | keep |
+| 4 | Use cumulative production weights and binary search instead of linear subtraction | 325,193 | 495,813 | +52.47% | 84,071 | 100,015 | +18.96% | identical | keep |
 
 Baseline raw measurements (names/second):
 
@@ -101,6 +102,20 @@ Baseline quality statistics were identical across all repetitions:
 - Quality: all reported statistics match the baseline exactly.
 - Decision: accepted. The stabilized primary gain is 19.34%, and Japanese
   improves 5.13%.
+
+### Round 4: binary-search cumulative production weights
+
+- Removed work: linearly subtracting weights across as many as 14 production
+  alternatives for every nested grammar expansion.
+- Candidate representation: productions store cumulative exclusive upper bounds;
+  `partition_point` maps the same random ticket to the same production.
+- Fenrin measurements: 493,108; 495,813; 498,505
+  (median 495,813; spread 1.09%).
+- Japanese measurements: 104,082; 100,015; 99,244
+  (median 100,015; spread 4.87%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all reported statistics match the baseline exactly.
+- Decision: accepted. Fenrin improves 52.47%, and Japanese improves 18.96%.
 
 ## Final verification
 

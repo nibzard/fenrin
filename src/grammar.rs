@@ -28,7 +28,7 @@ pub(crate) enum Symbol {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Production {
-    pub(crate) weight: usize,
+    pub(crate) upper_bound: usize,
     pub(crate) symbols: Vec<Symbol>,
 }
 
@@ -183,18 +183,9 @@ impl Grammar {
 
     fn pick_production(&self, rule: usize, rng: &mut Rng) -> usize {
         let rule = &self.rules[rule];
-        let mut ticket = rng.index(rule.total_weight);
+        let ticket = rng.index(rule.total_weight);
         rule.productions
-            .iter()
-            .position(|production| {
-                if ticket < production.weight {
-                    true
-                } else {
-                    ticket -= production.weight;
-                    false
-                }
-            })
-            .expect("validated rule has a selectable production")
+            .partition_point(|production| production.upper_bound <= ticket)
     }
 
     fn expand_rule(
