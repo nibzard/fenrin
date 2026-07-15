@@ -336,6 +336,7 @@ invariants remain enforced.
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | 0 | Baseline from the accepted first-loop implementation | — | 107,239 | — | — | 497,796 | — | baseline | keep |
 | 1 | Apply equal-length rewrites in place instead of rebuilding the unit vector | 107,239 | 146,685 | +36.78% | 497,796 | 488,431 | -1.88% | identical | keep |
+| 2 | Compile literal rewrite patterns as `Unit` sequences instead of generic matchers | 146,685 | 165,287 | +12.68% | 488,431 | 498,803 | +2.12% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -363,3 +364,18 @@ Baseline quality statistics:
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 36.78%; Fenrin regresses 1.88%, within
   the 2% secondary limit.
+
+### Round 2: compile rewrites as direct unit sequences
+
+- Removed work: generic matcher dispatch and grammar-dependent matching for
+  rewrite syntax that permits only literal segments and boundaries.
+- Initial Japanese measurements: 163,699; 166,530; 156,795. The 6.21% spread
+  triggered a replacement stabilized series.
+- Stabilized Japanese measurements: 160,900; 165,287; 166,574
+  (median 165,287; spread 3.53%).
+- Initial Fenrin measurements: 494,546; 475,429; 480,642.
+- Stabilized Fenrin measurements: 495,564; 498,908; 498,803
+  (median 498,803; spread 0.67%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 12.68%, and Fenrin improves 2.12%.

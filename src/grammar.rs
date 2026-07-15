@@ -53,7 +53,7 @@ pub(crate) enum Matcher {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Rewrite {
-    pub(crate) pattern: Vec<Matcher>,
+    pub(crate) pattern: Vec<Unit>,
     pub(crate) replacement: Vec<Unit>,
 }
 
@@ -241,7 +241,7 @@ impl Grammar {
             if rewrite.pattern.len() == rewrite.replacement.len() {
                 let mut index = 0;
                 while index < units.len() {
-                    if pattern_matches(&rewrite.pattern, units, index, self) {
+                    if units[index..].starts_with(&rewrite.pattern) {
                         units[index..index + rewrite.pattern.len()]
                             .copy_from_slice(&rewrite.replacement);
                         index += rewrite.pattern.len();
@@ -256,7 +256,7 @@ impl Grammar {
             let mut index = 0;
 
             while index < units.len() {
-                if pattern_matches(&rewrite.pattern, units, index, self) {
+                if units[index..].starts_with(&rewrite.pattern) {
                     rewritten.extend_from_slice(&rewrite.replacement);
                     index += rewrite.pattern.len();
                 } else {

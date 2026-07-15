@@ -596,9 +596,9 @@ fn compile_rewrites(
         let mut compiled_pattern = Vec::with_capacity(pattern_tokens.len());
         for token in pattern_tokens {
             compiled_pattern.push(if token == "." {
-                Matcher::Boundary
+                Unit::Boundary
             } else {
-                Matcher::Segment(resolve_segment(token, directive.line, segment_ids)?)
+                Unit::Segment(resolve_segment(token, directive.line, segment_ids)?)
             });
         }
 
