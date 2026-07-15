@@ -341,6 +341,7 @@ invariants remain enforced.
 | 4 | Fuse statically independent ordered pair rewrites into one adjacency scan | 165,287 | 242,597 | +46.77% | 498,803 | 494,462 | -0.87% | identical | keep |
 | 5 | Compact generated units to one machine word using a boundary sentinel | 242,597 | 252,203 | +3.96% | 494,462 | 497,084 | +0.53% | identical | keep |
 | 6 | Precompute dense ticket-to-production lookup tables for small weighted rules | 252,203 | 302,755 | +20.04% | 497,084 | 575,520 | +15.78% | identical | keep |
+| 7 | Push precompiled units directly for terminal-choice rules | 302,755 | 348,057 | +14.96% | 575,520 | 682,112 | +18.52% | identical | keep |
 
 Baseline raw measurements and spread:
 
@@ -443,3 +444,15 @@ Baseline quality statistics:
 - Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
 - Quality: all benchmark statistics match the baseline exactly.
 - Decision: accepted. Japanese improves 20.04%, and Fenrin improves 15.78%.
+
+### Round 7: specialize terminal-choice expansion
+
+- Removed work: entering `expand_production` and iterating a symbol vector after
+  selecting rules whose every production emits exactly one literal unit.
+- Japanese measurements: 343,851; 351,582; 348,057
+  (median 348,057; spread 2.25%).
+- Fenrin measurements: 685,921; 682,112; 665,602
+  (median 682,112; spread 3.05%).
+- Gates: format pass; 53 tests pass; clippy pass; both seeded snapshots identical.
+- Quality: all benchmark statistics match the baseline exactly.
+- Decision: accepted. Japanese improves 14.96%, and Fenrin improves 18.52%.

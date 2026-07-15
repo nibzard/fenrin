@@ -408,11 +408,20 @@ fn compile_rules(
             }
             tickets.into_boxed_slice()
         });
+        let terminal_units: Option<Vec<_>> = productions
+            .iter()
+            .map(|production| match production.symbols.as_slice() {
+                [Symbol::Segment(segment)] => Some(Unit::segment(*segment)),
+                [Symbol::Boundary] => Some(Unit::BOUNDARY),
+                _ => None,
+            })
+            .collect();
 
         rules.push(Rule {
             productions,
             total_weight,
             production_by_ticket,
+            terminal_units: terminal_units.map(Vec::into_boxed_slice),
         });
     }
 

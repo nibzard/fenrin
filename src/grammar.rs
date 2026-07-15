@@ -47,6 +47,7 @@ pub(crate) struct Rule {
     pub(crate) productions: Vec<Production>,
     pub(crate) total_weight: usize,
     pub(crate) production_by_ticket: Option<Box<[u8]>>,
+    pub(crate) terminal_units: Option<Box<[Unit]>>,
 }
 
 #[derive(Clone, Debug)]
@@ -289,6 +290,10 @@ impl Grammar {
         }
 
         let production = self.pick_production(rule, rng);
+        if let Some(terminals) = &self.rules[rule].terminal_units {
+            output.push(terminals[production]);
+            return output.len() <= MAX_UNITS;
+        }
         self.expand_production(rule, production, depth, output, rng)
     }
 
