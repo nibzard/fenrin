@@ -1,0 +1,11 @@
+[package]
+name = "fenrin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Generate fictional names from phonological grammars"
+repository = "https://github.com/nibzard/fenrin"
+readme = "README.md"
+
+[dependencies]
+getrandom = "0.4"
