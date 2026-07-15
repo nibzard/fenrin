@@ -32,6 +32,10 @@ fenrin --seed 42 10
 Fenrin prints 0–10,000 distinct names, one per line. It uses the `fenrin`
 profile by default.
 
+The limit is deliberate: distinct generation retains every name and may need
+increasingly many retries as a profile's output space fills. Bounding the count
+also bounds memory use and worst-case runtime.
+
 `--seed` (or `-s`) fixes the generator's starting state. Within the same Fenrin
 version, the same seed, exact profile contents, and count reproduce the same
 names. Seeded output may change between releases. Without a seed, Fenrin starts
@@ -120,6 +124,61 @@ weighted acyclic grammar
 Fenrin samples a weighted top-level shape, produces several well-formed
 fillings, and randomly chooses among the lowest-scoring candidates. This keeps
 the output varied while filtering combinations the profile marks as awkward.
+
+## Benchmark
+
+Run the core benchmark in release mode; it adds no benchmark-specific
+dependencies:
+
+```sh
+cargo run --release --example benchmark
+cargo run --release --example benchmark -- 1000 10000 1000000
+cargo run --release --example benchmark -- --config japanese 1000000
+cargo run --release --example benchmark -- --sas 1000000
+```
+
+### Reference run
+
+> **Million-name experiment:** With seed 42, the default profile produced
+> 412,401 distinct observed forms in 1,000,000 draws. The most frequent form
+> appeared only 83 times, or 0.0083% of the sample.
+
+| Workload | Throughput | Time per output | Observed diversity |
+| --- | ---: | ---: | --- |
+| Default names, 1,000,000 draws | ~95,000 names/s | ~10.5 µs | 17.29 collision bits; ~159,900 effective diversity |
+| SAS encoder, 1,000,000 inputs | ~27 million phrases/s | ~37 ns | Not applicable: the 40-bit mapping is injective |
+
+Measured with Fenrin 0.2.1 in release mode on a 15-core Apple M5 Pro using
+Rust 1.90. These are rounded, point-in-time core results; config parsing and
+terminal output are excluded. Effective diversity measures output
+concentration, not the total number of names a profile can produce.
+
+With no counts, it measures batches of 1,000, 10,000, and 1,000,000 outputs.
+After warming up, short batches repeat until their combined timing reaches
+roughly 200 ms; long batches run once. Timing is capped at ten million outputs,
+unless one requested batch is already larger. The `runs` column makes this
+explicit. The timed pass discards each result and excludes config parsing,
+uniqueness statistics, and terminal output.
+
+Name mode reports the duplicate percentage, matching output pairs, most
+frequent output, collision bits, and effective diversity. Collision bits are
+`-log2(p)`, where `p` is the observed probability that two sampled outputs
+match; effective diversity is `1/p`. These frequency-aware measures expose a
+profile that concentrates too much probability on a small set of names. They
+display `n/a` when the sample contains no collision. Statistics use at most one
+million 64-bit fingerprints, bounding memory to roughly 8 MB; consequently,
+accidental fingerprint collisions are extremely unlikely, but the results are
+estimates rather than exact string comparisons.
+
+`--sas` measures phrase encoding over distinct sequential 40-bit inputs, so it
+does not benchmark the operating system's random source. SAS mode reports only
+performance: injectivity and codeword-distance properties are deterministic
+invariants covered exhaustively by the test suite, not statistical benchmark
+results.
+
+Adaptive timing stabilizes short runs but remains a point-in-time measurement.
+Repeat the command when comparing code changes so ordinary system noise is easy
+to spot.
 
 ## Create a profile
 
