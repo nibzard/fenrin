@@ -35,6 +35,11 @@ echo "Building instrumented release artifacts"
         cargo build --release --bins --example benchmark
 )
 
+# Cargo may execute instrumented build scripts while compiling. Their default
+# profiles describe the build rather than Fenrin's runtime workload, so exclude
+# them before collecting the deliberately named training profiles below.
+find "$profiles_root" -maxdepth 1 -type f -name '*.profraw' -delete
+
 benchmark="$instrumented_target/release/examples/benchmark"
 fenrin="$instrumented_target/release/fenrin"
 bundled_profiles=(
@@ -50,8 +55,17 @@ for profile in "${bundled_profiles[@]}"; do
         "$fenrin" --seed 42 --config "$profile" 10000 >/dev/null
 done
 
+mapfile -t training_profiles < <(
+    find "$profiles_root" -maxdepth 1 -type f -name '*.profraw' -print | sort
+)
+expected_profiles=$((2 * ${#bundled_profiles[@]}))
+if (( ${#training_profiles[@]} != expected_profiles )); then
+    echo "Expected $expected_profiles training profiles, found ${#training_profiles[@]}" >&2
+    exit 2
+fi
+
 "$llvm_profdata" merge --failure-mode=all \
-    -o "$merged_profile" "$profiles_root"/*.profraw
+    -o "$merged_profile" "${training_profiles[@]}"
 
 echo "Building profile-optimized release artifacts"
 (
