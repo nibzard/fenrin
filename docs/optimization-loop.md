@@ -2,7 +2,7 @@
 
 Use fixed-work paired measurements for optimization decisions. The primary
 metric is distinct names completed per second through the production session:
-generation, `HashSet` deduplication, first-seen ordering, line formatting, and
+generation, exact deduplication, first-seen ordering, line formatting, and
 buffering into a counting sink. Grammar parsing and process startup are outside
 the timed region.
 

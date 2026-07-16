@@ -124,14 +124,33 @@ weighted acyclic grammar
 Fenrin samples a weighted top-level shape and returns the first well-formed
 filling with a zero soft-constraint score. Each shape has a finite budget of 64
 total or 16 well-formed fillings. If none scores zero within that budget, it
-randomly chooses among the four lowest-scoring well-formed fillings seen. It
+randomly chooses among up to four lowest-scoring well-formed fillings seen. It
 tries at most eight shapes before reporting that the grammar could not produce
 a name.
 
 ## Benchmark
 
-Run the core benchmark in release mode; it adds no benchmark-specific
-dependencies:
+The optimization metric is distinct names completed per second through the
+production session: generation, exact deduplication, first-seen ordering, line
+formatting, and buffering. Use the fixed-work record and paired runner for code
+comparisons:
+
+```sh
+cargo build --release --example benchmark --example paired
+
+target/release/examples/benchmark \
+  --measure distinct --config fenrin --seed 42 --sessions 50 10000
+
+target/release/examples/paired \
+  --aa target/release/examples/benchmark \
+  --mode distinct --config fenrin --count 10000 --sessions 50 \
+  --blocks 16 --order-seed 731 --seed 42 --seed 314159
+```
+
+`docs/optimization-loop.md` defines A/A calibration, prebuilt A/B comparisons,
+paired log-ratio analysis, and held-out confirmation. The older human-readable
+commands remain useful as raw-generation and diversity diagnostics, but not as
+optimization acceptance evidence:
 
 ```sh
 cargo run --release --example benchmark
@@ -140,21 +159,21 @@ cargo run --release --example benchmark -- --config japanese 1000000
 cargo run --release --example benchmark -- --sas 1000000
 ```
 
-### Reference run
+### Campaign reference
 
-> **Million-name experiment:** With seed 42, the default profile produced
-> 412,401 distinct observed forms in 1,000,000 draws. The most frequent form
-> appeared only 83 times, or 0.0083% of the sample.
+The July 2026 architecture campaign used fixed production-distinct work,
+randomized ABBA/BAAB blocks, and fresh held-out seeds. Its final PGO artifact
+was 7.497x faster than the campaign start on Fenrin (95% one-sided lower bound
+7.439x) and 10.388x faster on Japanese (lower bound 10.314x). All 16 planned
+blocks were retained for each profile.
 
-| Workload | Throughput | Time per output | Observed diversity |
-| --- | ---: | ---: | --- |
-| Default names, 1,000,000 draws | ~95,000 names/s | ~10.5 µs | 17.29 collision bits; ~159,900 effective diversity |
-| SAS encoder, 1,000,000 inputs | ~27 million phrases/s | ~37 ns | Not applicable: the 40-bit mapping is injective |
-
-Measured with Fenrin 0.2.1 in release mode on a 15-core Apple M5 Pro using
-Rust 1.90. These are rounded, point-in-time core results; config parsing and
-terminal output are excluded. Effective diversity measures output
-concentration, not the total number of names a profile can produce.
+On the same four-vCPU Intel i9-12900HK KVM guest with Rust 1.94, the final PGO
+artifact's 100,000-draw raw diagnostics reported 10.34 million Fenrin names/s
+and 5.60 million Japanese names/s. These absolute values are point-in-time
+hardware measurements; the paired held-out ratios are the campaign claim.
+Effective diversity measures output concentration, not the total number of
+names a profile can produce. Full measurements and quality intervals are in
+`LOG.md`.
 
 With no counts, it measures batches of 1,000, 10,000, and 1,000,000 outputs.
 After warming up, short batches repeat until their combined timing reaches
@@ -179,9 +198,12 @@ performance: injectivity and codeword-distance properties are deterministic
 invariants covered exhaustively by the test suite, not statistical benchmark
 results.
 
-Adaptive timing stabilizes short runs but remains a point-in-time measurement.
-Repeat the command when comparing code changes so ordinary system noise is easy
-to spot.
+Adaptive timing stabilizes short diagnostic runs but remains a point-in-time
+measurement. Use the fixed-work paired protocol when comparing code changes.
+
+To build a reproducibly trained profile-guided artifact across all bundled
+grammars, run `scripts/build-pgo.sh <unique-run-name>`, then treat its optimized
+benchmark as another prebuilt candidate under the paired protocol.
 
 ## Create a profile
 

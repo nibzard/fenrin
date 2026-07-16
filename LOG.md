@@ -753,3 +753,379 @@ retention threshold. A future loop could profile a sparse context-first rewrite
 dispatch that removes the dense table entirely, or test a combined constraint
 evaluator, but the isolated hard-constraint fusion in round 12 suggests that
 constraint scans now offer less than 1% on Japanese.
+
+# Production-distinct architecture campaign
+
+Date: 2026-07-16
+Branch: `perf/compiled-name-sampler`
+Campaign start: `dafc76c`
+Final implementation under test: `d18df2d`
+Ultimate metric: exact distinct names completed per second
+
+This campaign removes the previous assumption that the tournament policy,
+seed-to-output stream, default compiler layout, or historical microbenchmark
+were untouchable. Hard phonotactic validity remains exact. A policy change is
+allowed only when its probability law is explicit and a powered, preregistered
+all-profile quality comparison passes before the final performance claim.
+
+## Frozen measurement and decision procedure
+
+- The primary path is the real production session: generation, exact
+  deduplication, first-seen ordering, line formatting, and buffering into a
+  counting sink. Parsing and process startup are outside the timed region.
+- Every observation completes a fixed `count * sessions` number of distinct
+  names after one full untimed warmup session. No adaptive stopping is used.
+- A/B comparisons use prebuilt binaries, randomized ABBA/BAAB four-run blocks,
+  paired log-throughput ratios, and a Student-t one-sided 95% lower confidence
+  bound. Complete outliers are retained; invalid blocks are reported and are
+  never replaced.
+- Fenrin is primary and Japanese is the mandatory cross-profile gate. Raw
+  generation remains diagnostic only.
+- Per-candidate results are exploratory screens. Only a final start-versus-end
+  comparison with unused work and order seeds is labeled held-out confirmation.
+- Performance series were serialized after an audit found some early screens
+  had overlapped unrelated build or benchmark activity. Those early numbers are
+  marked provisional below and are not used as the campaign-level claim.
+- Output-preserving candidates must retain exact RNG advancement and byte output.
+  Intentional policy changes instead use exact-law proofs, hard-validity tests,
+  and powered statistical quality bounds.
+
+The protocol is implemented in `examples/benchmark.rs`, `examples/paired.rs`,
+and `docs/optimization-loop.md` by `535d859`. The benchmark runner emits its
+entire design before launching a subprocess and fails if any planned block is
+invalid.
+
+## Twenty-iteration ledger
+
+The requested twenty iterations include measurement infrastructure, reversible
+performance candidates, policy proofs, and confirmatory validation. This table
+distinguishes them so validation work is not misrepresented as another code
+optimization.
+
+| Iteration | Type | Hypothesis or question | Result | Decision |
+| ---: | --- | --- | --- | --- |
+| 1 | protocol | Replace adaptive medians with fixed production-distinct work and paired inference | Versioned fixed record, A/A mode, randomized blocks, log-ratio t bound, invalid retention, held-out label | keep (`535d859`) |
+| 2 | integration | Make the benchmark time exactly the CLI's distinct-name session | CLI and benchmark now share `write_distinct_names`; parsing and terminal I/O remain excluded | keep (`535d859`) |
+| 3 | build lever | Make rustc-compatible PGO repeatable across all bundled grammars | Isolated instrument/train/merge/use workflow plus manifest | keep (`7236b69`) |
+| 4 | build correctness | Exclude profiles emitted by instrumented build-time executables | Merge now requires exactly 20 deliberately named runtime profiles | keep (`da81393`) |
+| 5 | reproducibility | Remove wall-time adaptation from PGO training | Ten profiles each train fixed raw work plus a seeded CLI distinct run | keep (`7314f74`) |
+| 6 | hot path | Replace general terminal production selection with a dense ticket-to-unit table | Exact ticket and RNG tests pass across all profiles | keep (`3ec39e7`) |
+| 7 | allocation | Keep four candidates as packed segment IDs and render only the selected name | Forty profile/seed streams match; early positive cross-profile screen | keep (`3ec39e7`) |
+| 8 | diagnostic | Measure how quickly the four-entry tournament becomes mathematically final | Most shapes fill four zero-score elite slots after roughly 4–10 valid candidates; all primary-profile diagnostic selections were zero | informs iterations 9 and 11 |
+| 9 | exact stop | Stop once all four stable elite entries score zero | Exhaustive binary-score traces for accepted counts 0–16 prove the selected pool is unchanged | keep as exact intermediate (`3aad705`), later superseded |
+| 10 | session allocation | Store each accepted name once instead of cloning it into a set and ordered vector | Exact collision chains preserve equality and order; clean final-source isolation is strongly positive | keep (`edfd764`) |
+| 11 | policy | Return the first hard-valid zero-score filling; retain the bounded top-four fallback if no zero appears | Clean screens: +100.035% Fenrin, +153.280% Japanese | keep (`7dcb142`) |
+| 12 | probability proof | Is the new sampler exact rather than a floating-point approximation? | Exhaustive 1:2 ticket law, 4,096-seed runtime/reference agreement, exact no-zero fallback, and all finite caps pass | keep (`7dcb142`) |
+| 13 | quality pilot | Are the planned quality margins sufficiently powered? | A 20,000-draw-per-seed pilot was underpowered for Slavic collision bits | no decision; increase the preregistered sample, do not relax margins |
+| 14 | powered quality | Does first-zero retain diversity, length, and shape behavior across all profiles? | 12.8 million paired draws pass every equivalence/noninferiority bound | keep policy (`7dcb142`) |
+| 15 | post-policy candidate | Inline dense terminal expansion after first-zero changed the hot path | Fenrin -0.186% (lower -0.940%); Japanese +0.148% (lower -0.664%) | reject and revert (`39efcc9`, `b505fd5`) |
+| 16 | allocation | Replace per-shape `Vec<Unit>` allocation with fixed storage when every rewrite preserves length | Fenrin +37.633% (lower +36.556%); Japanese +30.916% (lower +30.252%) | keep (`d579377`) |
+| 17 | adversarial review | Can fixed storage overflow or diverge on length-changing rewrites? | Independent review found no blocker; exact-64, nested-65 rejection, boundaries, and mixed grow/shrink fallback pass | harden (`d18df2d`) |
+| 18 | isolation audit | Do fixed storage and single-owner session still win on the final policy without timing overlap? | Fixed storage and session ownership both clear clean 24-block cross-profile gates | keep both |
+| 19 | final build lever | Does PGO help the exact final source rather than an earlier revision? | Fenrin +4.505% (lower +3.943%); Japanese +7.072% (lower +6.471%) | keep as opt-in artifact |
+| 20 | confirmation | Does the whole campaign win on untouched seeds and schedules? | Fenrin 7.497x (lower 7.439x); Japanese 10.388x (lower 10.314x) | campaign confirmed; no tuning afterward |
+
+## Accepted implementation designs
+
+### Direct terminal lookup and packed render-once candidates
+
+Rules whose weighted productions each emit one terminal compile a dense ticket
+table. Elite candidates retain only boundary-free `u8` segment IDs in four
+fixed slots; the winner alone is sized, allocated, and rendered. Stable tie
+order and RNG consumption are unchanged. All forty bundled profile/seed streams
+match the parent byte-for-byte. The initial screens reported +17.165% Fenrin
+(lower +16.347%) and +9.114% Japanese (lower +8.144%), but those timings were
+made before the serialization audit and are treated as provisional. The final
+held-out comparison, not these isolated values, carries the campaign claim.
+
+### Minimum-score saturation and first-zero policy
+
+Soft penalties are nonnegative. Four stable elite entries at score zero cannot
+be displaced, which makes the four-zero stop exactly equivalent to completing
+the old tournament. Diagnostics then exposed the more important policy fact:
+the selected output was almost always zero-score, yet the engine generated
+several additional valid candidates only to choose among zeros.
+
+The final policy samples the first hard-valid zero-score filling for the chosen
+weighted shape. Conditional on validity and score zero, this retains the raw
+weighted spelling distribution exactly: it is rejection sampling, not an
+approximation. If no zero appears within the existing limit of 64 fills or 16
+hard-valid candidates, the engine still selects uniformly from the stable pool
+of up to four lowest positive-score candidates. It still tries at most eight
+shapes.
+
+Clean serialized evidence:
+
+| Profile | A/A mean | A/B blocks | Geometric change | 95% one-sided lower bound |
+| --- | ---: | ---: | ---: | ---: |
+| Fenrin | +0.592% | 16/16 | +100.035% | +98.727% |
+| Japanese | -0.147% | 16/16 | +153.280% | +151.588% |
+
+### Exact single-owner distinct session
+
+The old production path owned each accepted short string twice. The replacement
+hashes once with a per-session secret `RandomState`, indexes collision heads by
+the resulting `u64`, and keeps a collision-linked ordered vector as the single
+string owner. Exact string comparison resolves prehash collisions, including a
+forced-collision test; first-seen order and formatted bytes are unchanged.
+
+The first screen was positive but overlapped other activity. A clean final-source
+comparison reverse-applied only this change in the baseline and confirmed equal
+attempt and output-byte records:
+
+| Profile | identical-binary control mean | A/B blocks | Geometric change | 95% one-sided lower bound |
+| --- | ---: | ---: | ---: | ---: |
+| Fenrin | -0.281% | 24/24 | +25.095% | +24.456% |
+| Japanese | -0.007% | 24/24 | +17.323% | +16.855% |
+
+The larger final-source result is consistent with an interaction: after
+first-zero and fixed generation storage removed much of the generator cost, one
+extra owned string per emitted distinct name became a dominant fraction of the
+session. This reverse ablation was not a factorial interaction test.
+
+### Fixed unit storage with exact generic fallback
+
+Parser validation already proves a maximum underlying expansion of 64 units.
+Grammars whose rewrites all preserve length now use safe stack storage
+`[Unit; 64]`; length-changing grammars retain the original `Vec` path. No
+`unsafe` code is used. Monomorphized storage operations avoid a dynamic dispatch
+layer. Tests compare fixed and vector expansion, rewrites, score, rendered name,
+and RNG state for every bundled profile.
+
+| Profile | A/B blocks | Geometric change | 95% one-sided lower bound |
+| --- | ---: | ---: | ---: |
+| Fenrin | 24/24 | +37.633% | +36.556% |
+| Japanese | 24/24 | +30.916% | +30.252% |
+
+An independent safety review verified acyclic checked expansion bounds,
+boundary handling, overlapping rewrite semantics, exactly 64 units, rejection
+at 65 nested units, and mixed growing/shrinking/equal rewrite fallback. The
+release stack frame grows by about 448 bytes and text by about 5,032 bytes; this
+is acceptable for the CLI but should be revisited for constrained-stack ports.
+
+### Reproducible final-source PGO
+
+`scripts/build-pgo.sh` builds isolated instrumented artifacts, deletes
+build-time profiles, trains raw generation and CLI distinct paths for all ten
+bundled profiles, asserts exactly twenty runtime profiles, merges them with the
+toolchain-matched `llvm-profdata`, and builds the optimized artifacts. Its
+manifest records source revision/state, profile list, fixed commands, seeds,
+counts, sessions, and Rust/Cargo/LLVM versions.
+
+The final evaluation used clean source `d18df2d`, tree `4fca044e`, Rust 1.94.0,
+and LLVM profile tools 21.1.8. The merged profile contains 466 functions and
+4,412 blocks. Normal and PGO binaries produced byte-identical output for all ten
+profiles at seed 424242 and count 1,000.
+
+| Profile | A/A mean | A/B blocks | Geometric change | 95% one-sided lower bound |
+| --- | ---: | ---: | ---: | ---: |
+| Fenrin | -0.473% | 24/24 | +4.505% | +3.943% |
+| Japanese | +0.012% | 24/24 | +7.072% | +6.471% |
+
+PGO remains an explicit opt-in build artifact rather than silently changing the
+normal release profile.
+
+## Rejected post-policy candidate
+
+Inlining the dense terminal case into the production symbol walk remained
+output-identical across all forty streams, but its clean fixed-work results were
+unsupported on both profiles:
+
+| Profile | A/A mean | A/B blocks | Geometric change | 95% one-sided lower bound |
+| --- | ---: | ---: | ---: | ---: |
+| Fenrin | -0.710% | 24/24 | -0.186% | -0.940% |
+| Japanese | +0.154% | 24/24 | +0.148% | -0.664% |
+
+The candidate was fully reverted. This is evidence that, after first-zero,
+isolated recursive terminal dispatch is no longer a meaningful bottleneck.
+
+## Clean exploratory A/B machine records
+
+These are the complete plan and result records for the serialized candidate
+screens. The paired runner's individual `OBS` and `BLOCK` lines were retained
+during execution; the preregistered plan and inferential result are reproduced
+here. All screens used the same development seed set and are explicitly
+`scope=exploratory_per_candidate`.
+
+### First-zero
+
+```text
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=fenrin count=10000 sessions=200 blocks=16 order_source=random:71072 schedule=BAAB,BAAB,BAAB,ABBA,BAAB,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA,BAAB,BAAB,ABBA,ABBA,BAAB seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=16 planned_blocks=16 invalid_blocks=0 mean_log_ratio=0.693321410 log_ratio_sd=0.014964055 speedup_ratio=2.000348 speedup_percent=100.035 lower_95_one_sided_ratio=1.987273 lower_95_one_sided_percent=98.727 evidence=screen_positive
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=japanese count=10000 sessions=150 blocks=16 order_source=random:71073 schedule=BAAB,BAAB,BAAB,BAAB,ABBA,BAAB,BAAB,ABBA,BAAB,BAAB,ABBA,ABBA,BAAB,ABBA,ABBA,ABBA seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=16 planned_blocks=16 invalid_blocks=0 mean_log_ratio=0.929323912 log_ratio_sd=0.015294987 speedup_ratio=2.532796 speedup_percent=153.280 lower_95_one_sided_ratio=2.515876 lower_95_one_sided_percent=151.588 evidence=screen_positive
+```
+
+### Rejected dense-terminal inlining
+
+```text
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=fenrin count=10000 sessions=200 blocks=24 order_source=random:81072 schedule=ABBA,BAAB,BAAB,ABBA,BAAB,BAAB,BAAB,BAAB,BAAB,ABBA,BAAB,ABBA,BAAB,BAAB,BAAB,BAAB,BAAB,ABBA,BAAB,BAAB,BAAB,ABBA,ABBA,BAAB seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=-0.001865125 log_ratio_sd=0.021671856 speedup_ratio=0.998137 speedup_percent=-0.186 lower_95_one_sided_ratio=0.990597 lower_95_one_sided_percent=-0.940 evidence=screen_inconclusive
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=japanese count=10000 sessions=150 blocks=24 order_source=random:81073 schedule=BAAB,ABBA,ABBA,ABBA,BAAB,ABBA,BAAB,BAAB,BAAB,BAAB,ABBA,ABBA,BAAB,BAAB,BAAB,BAAB,BAAB,BAAB,BAAB,ABBA,ABBA,ABBA,ABBA,ABBA seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.001482002 log_ratio_sd=0.023270255 speedup_ratio=1.001483 speedup_percent=0.148 lower_95_one_sided_ratio=0.993363 lower_95_one_sided_percent=-0.664 evidence=screen_inconclusive
+```
+
+### Fixed unit storage
+
+```text
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=fenrin count=10000 sessions=200 blocks=24 order_source=random:91072 schedule=BAAB,ABBA,ABBA,ABBA,ABBA,ABBA,ABBA,BAAB,ABBA,BAAB,ABBA,BAAB,BAAB,BAAB,ABBA,BAAB,BAAB,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA,BAAB seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.319417569 log_ratio_sd=0.022450187 speedup_ratio=1.376326 speedup_percent=37.633 lower_95_one_sided_ratio=1.365558 lower_95_one_sided_percent=36.556 evidence=screen_positive
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=japanese count=10000 sessions=150 blocks=24 order_source=random:91073 schedule=ABBA,ABBA,BAAB,BAAB,BAAB,ABBA,BAAB,ABBA,ABBA,BAAB,BAAB,ABBA,BAAB,BAAB,BAAB,BAAB,ABBA,BAAB,ABBA,BAAB,BAAB,ABBA,ABBA,ABBA seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.269389200 log_ratio_sd=0.014533218 speedup_ratio=1.309165 speedup_percent=30.916 lower_95_one_sided_ratio=1.302525 lower_95_one_sided_percent=30.252 evidence=screen_positive
+```
+
+### Single-owner distinct session
+
+```text
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=fenrin count=10000 sessions=250 blocks=24 order_source=random:92072 schedule=ABBA,ABBA,BAAB,BAAB,ABBA,ABBA,BAAB,BAAB,ABBA,BAAB,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA,BAAB,ABBA seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.223902412 log_ratio_sd=0.014644095 speedup_ratio=1.250949 speedup_percent=25.095 lower_95_one_sided_ratio=1.244556 lower_95_one_sided_percent=24.456 evidence=screen_positive
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=japanese count=10000 sessions=180 blocks=24 order_source=random:92073 schedule=BAAB,ABBA,BAAB,ABBA,ABBA,BAAB,ABBA,ABBA,ABBA,BAAB,ABBA,ABBA,ABBA,BAAB,ABBA,ABBA,BAAB,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA,ABBA seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.159762317 log_ratio_sd=0.011424097 speedup_ratio=1.173232 speedup_percent=17.323 lower_95_one_sided_ratio=1.168552 lower_95_one_sided_percent=16.855 evidence=screen_positive
+```
+
+### Final-source PGO
+
+```text
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=fenrin count=10000 sessions=300 blocks=24 order_source=random:93072 schedule=BAAB,ABBA,ABBA,BAAB,ABBA,BAAB,ABBA,BAAB,ABBA,BAAB,BAAB,BAAB,ABBA,ABBA,ABBA,ABBA,BAAB,BAAB,ABBA,BAAB,ABBA,ABBA,BAAB,BAAB seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.044062667 log_ratio_sd=0.015411240 speedup_ratio=1.045048 speedup_percent=4.505 lower_95_one_sided_ratio=1.039428 lower_95_one_sided_percent=3.943 evidence=screen_positive
+PLAN experiment=AB scope=exploratory_per_candidate mode=distinct config=japanese count=10000 sessions=220 blocks=24 order_source=random:93073 schedule=ABBA,ABBA,BAAB,BAAB,BAAB,ABBA,ABBA,ABBA,BAAB,ABBA,ABBA,ABBA,BAAB,BAAB,ABBA,ABBA,ABBA,BAAB,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA seeds=42,314159,271828,161803
+RESULT experiment=AB scope=exploratory_per_candidate mode=distinct valid_blocks=24 planned_blocks=24 invalid_blocks=0 mean_log_ratio=0.068330521 log_ratio_sd=0.016084664 speedup_ratio=1.070719 speedup_percent=7.072 lower_95_one_sided_ratio=1.064711 lower_95_one_sided_percent=6.471 evidence=screen_positive
+```
+
+## Powered all-profile quality result
+
+The first-zero policy was compared against the exact four-zero saturation policy
+using eight fresh seeds and 80,000 outputs per seed, per policy, for every
+bundled profile: 640,000 outputs per profile/policy and 12.8 million total draws.
+Paired Student-t intervals use seven degrees of freedom.
+
+| Metric | Preregistered requirement | Worst supported result across profiles |
+| --- | ---: | ---: |
+| Duplicate-rate delta | two-sided equivalence within 0.005 | absolute estimate plus 95% half-width < 0.0037 |
+| Collision-bit delta | two-sided equivalence within 0.15 bits | absolute estimate plus half-width < 0.109 bits |
+| Mean rendered-byte delta | two-sided equivalence within 0.05 bytes | absolute estimate plus half-width < 0.015 bytes |
+| Every start-shape share | two-sided equivalence within 0.01 | every estimate plus half-width < 0.0037 |
+| Zero-score regression | one-sided noninferiority margin 0.001 | worst upper bound approximately 0.000001 |
+
+Every individual preregistered bound passed without changing a margin. These are
+unadjusted per-metric 95% intervals, not simultaneous or familywise-controlled
+95% coverage across all profiles, metrics, and shapes. The 20,000-draw pilot was
+not reused because Slavic collision bits were underpowered; the sample was
+enlarged rather than weakening the criterion. The exact command completed in
+16.16 seconds in release mode and is retained as the ignored campaign test
+`first_zero_meets_preregistered_all_profile_quality_bounds`.
+
+Hard constraints are not statistical: all bundled profiles pass their exact
+phonotactic tests, the runtime matches an explicit bounded-policy reference for
+4,096 seeds, the weighted zero ticket law is exhaustive, and the no-zero path
+matches the packed fallback exactly.
+
+## Held-out campaign confirmation
+
+The baseline is `dafc76c` with only the benchmark protocol applied. The
+candidate is the exact final PGO artifact built from `d18df2d`. The four work
+seeds and both order seeds below were unused in candidate development. No code
+or performance tuning followed these observations.
+
+Baseline A/A calibration used the original development seeds. Fenrin completed
+16/16 blocks with mean -0.408% and log-ratio SD 0.011812; Japanese completed
+16/16 with mean -0.159% and SD 0.012050. Both estimates required only two blocks
+for approximate 80% power at a 3% target, but the frozen confirmation retained
+all sixteen.
+
+### Fenrin
+
+```text
+PLAN experiment=AB scope=held_out_confirmation mode=distinct config=fenrin count=10000 sessions=300 blocks=16 order_source=random:2026071601 schedule=ABBA,BAAB,ABBA,BAAB,BAAB,ABBA,ABBA,BAAB,BAAB,ABBA,BAAB,BAAB,BAAB,BAAB,ABBA,ABBA seeds=32452843,49979687,67867967,86028121
+RESULT experiment=AB scope=held_out_confirmation mode=distinct valid_blocks=16 planned_blocks=16 invalid_blocks=0 mean_log_ratio=2.014519596 log_ratio_sd=0.017615806 speedup_ratio=7.497125 speedup_percent=649.712 lower_95_one_sided_ratio=7.439469 lower_95_one_sided_percent=643.947 evidence=candidate_faster
+```
+
+### Japanese
+
+```text
+PLAN experiment=AB scope=held_out_confirmation mode=distinct config=japanese count=10000 sessions=220 blocks=16 order_source=random:2026071602 schedule=ABBA,ABBA,ABBA,BAAB,ABBA,BAAB,BAAB,ABBA,ABBA,ABBA,BAAB,ABBA,ABBA,ABBA,ABBA,BAAB seeds=32452843,49979687,67867967,86028121
+RESULT experiment=AB scope=held_out_confirmation mode=distinct valid_blocks=16 planned_blocks=16 invalid_blocks=0 mean_log_ratio=2.340679147 log_ratio_sd=0.016356989 speedup_ratio=10.388289 speedup_percent=938.829 lower_95_one_sided_ratio=10.314088 lower_95_one_sided_percent=931.409 evidence=candidate_faster
+```
+
+The candidate's attempt and byte totals differ from the start because first-zero
+intentionally changes the sampling policy and RNG stream. Each observation
+still completes exactly the same fixed number of requested distinct outputs;
+the powered quality gate, not output identity, validates that policy change.
+
+## Final verification
+
+- `cargo fmt -- --check`: pass.
+- `cargo test --all-targets`: pass; 81 tests passed and two campaign diagnostics
+  were ignored by default.
+- Powered ignored quality test: pass; one test, 12.8 million draws.
+- `cargo clippy --all-targets -- -D warnings`: pass.
+- Output-preserving grammar and session changes: forty bundled profile/seed
+  streams match their parents byte-for-byte.
+- PGO versus matched control: all ten profiles match byte-for-byte at seed
+  424242 and count 1,000.
+- Fixed-storage proof matrix covers all profiles plus boundaries, exact maximum
+  length, growing and mixed rewrite fallback, RNG state, and nested overflow.
+- All held-out and clean screens retained every planned block; no invalid blocks
+  occurred.
+
+Final PGO raw-generation smoke diagnostics at 100,000 draws completed for every
+bundled profile. They are point estimates and not the production-distinct claim:
+
+| Profile | Raw names/second | Duplicate % | Collision bits | Effective diversity |
+| --- | ---: | ---: | ---: | ---: |
+| fenrin | 10,335,367 | 20.905% | 17.30 | 1.610e5 |
+| japanese | 5,596,276 | 16.326% | 17.75 | 2.199e5 |
+| ancient-roman | 3,303,651 | 12.098% | 17.99 | 2.611e5 |
+| slavic | 3,688,839 | 5.551% | 19.55 | 7.677e5 |
+| klingon | 3,836,395 | 2.720% | 20.70 | 1.709e6 |
+| oceanic | 3,877,091 | 0.353% | 23.72 | 1.385e7 |
+| uralic | 5,901,310 | 5.008% | 19.67 | 8.340e5 |
+| caucasian | 4,052,313 | 0.848% | 22.41 | 5.574e6 |
+| aurelian | 2,286,585 | 29.271% | 16.07 | 6.858e4 |
+| obsidian | 2,676,738 | 8.468% | 18.86 | 4.755e5 |
+
+## What this campaign learned
+
+1. Optimizing the full production metric changes priorities. The string clone
+   looked like a 4–6% win early and became a 17–25% win after generation was
+   cheaper. Session/rendering work now matters as much as grammar dispatch.
+2. The old sixteen-candidate tournament was policy work, not required rigor.
+   Once the probability law was stated explicitly, exact rejection sampling plus
+   a bounded fallback doubled Fenrin and more than doubled Japanese while the
+   powered quality gate passed.
+3. Parser-proven bounds are valuable performance assets. Safe fixed storage
+   removed an allocation and improved the primary profiles by 31–38% without
+   deleting the generic path.
+4. Broad PGO is worthwhile but secondary: it adds 4.5–7.1%, much less than the
+   algorithmic and ownership changes, and must be measured on the final source.
+5. Small hot-path inlining is no longer fertile ground. Dense terminal inlining
+   was flat after the policy change and was correctly reverted.
+
+## New opportunities
+
+The next campaign should start at the session/render boundary and reuse the same
+held-out discipline:
+
+1. Render accepted names directly into a session byte arena and store offset/
+   length pairs. This could remove the exact-capacity scan, one allocation per
+   attempt, and each retained `String` header while remaining output-preserving.
+2. Move `FixedUnits` and the positive-score fallback pool into reusable
+   caller-owned scratch. Reset initialized lengths instead of constructing and
+   initializing roughly 768 bytes of stack state per shape.
+3. Hash while rendering into the arena with an audited keyed short-string hash.
+   Exact collision chains preserve correctness, but hash-flood resistance must
+   not be traded away.
+4. Test a complete compiled constraint evaluator that fuses nonempty, hard, and
+   soft checks in one surface pass. The prior pair-only hard-constraint fusion
+   was too narrow; a complete fusion is the meaningful hypothesis.
+5. If policy freedom remains acceptable, compare first-zero against first
+   hard-valid under new powered quality bounds, or compile an exact conditional
+   valid-zero sampler for eligible grammars with the generic bounded fallback.
+   Both could remove scoring/rejection work, but both require a new statistical
+   campaign rather than an output-equivalence claim.
+
+Re-testing `Unit(u16)` is lower priority but newly plausible as an interaction
+with fixed storage: it would shrink the fixed buffer from 512 to 128 bytes. Do
+not repeat unchanged rejected candidates such as terminal inlining, ThinLTO,
+approximate render capacity, pair-only constraint fusion, or compact rewrite
+cells.
