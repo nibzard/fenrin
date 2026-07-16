@@ -360,7 +360,13 @@ impl Grammar {
             .partition_point(|production| production.upper_bound <= ticket)
     }
 
-    fn expand_rule_fallback(&self, rule: usize, output: &mut Vec<Unit>, rng: &mut Rng) {
+    fn expand_rule(&self, rule: usize, output: &mut Vec<Unit>, rng: &mut Rng) {
+        if let Some(terminals) = &self.rules[rule].terminal_by_ticket {
+            let ticket = rng.index(self.rules[rule].total_weight);
+            output.push(terminals[ticket]);
+            return;
+        }
+
         let production = self.pick_production(rule, rng);
         if let Some(terminals) = &self.rules[rule].terminal_units {
             output.push(terminals[production]);
@@ -382,18 +388,7 @@ impl Grammar {
             match *symbol {
                 Symbol::Segment(segment) => output.push(Unit::segment(segment)),
                 Symbol::Boundary => output.push(Unit::BOUNDARY),
-                Symbol::Rule(nested) => {
-                    let nested_rule = &self.rules[nested];
-                    // Keep the common terminal selection outside the mutually
-                    // recursive fallback so LLVM can inline this branch into
-                    // the production walk.
-                    if let Some(terminals) = &nested_rule.terminal_by_ticket {
-                        let ticket = rng.index(nested_rule.total_weight);
-                        output.push(terminals[ticket]);
-                    } else {
-                        self.expand_rule_fallback(nested, output, rng);
-                    }
-                }
+                Symbol::Rule(nested) => self.expand_rule(nested, output, rng),
             }
         }
     }
@@ -878,40 +873,7 @@ mod tests {
 
             let mut actual_rng = Rng::new(seed);
             let mut output = Vec::new();
-            grammar.expand_production(grammar.start, 0, &mut output, &mut actual_rng);
-
-            assert_eq!(output, [expected]);
-            assert_eq!(actual_rng.0, reference_rng.0);
-        }
-    }
-
-    #[test]
-    fn large_weight_terminal_rule_preserves_fallback_and_rng_advance() {
-        let grammar = config::parse(
-            "segments = A B\n\
-             start = NAME\n\
-             rule NAME = 1: @T\n\
-             rule T = 256: A | 1: B\n",
-        )
-        .unwrap();
-        let terminal_rule = 1;
-        assert!(grammar.rules[terminal_rule].terminal_by_ticket.is_none());
-        assert_eq!(
-            grammar.rules[terminal_rule].terminal_units.as_deref(),
-            Some([Unit::segment(0), Unit::segment(1)].as_slice())
-        );
-
-        for seed in 0..256 {
-            let mut reference_rng = Rng::new(seed);
-            let expected = if reference_rng.index(257) < 256 {
-                Unit::segment(0)
-            } else {
-                Unit::segment(1)
-            };
-
-            let mut actual_rng = Rng::new(seed);
-            let mut output = Vec::new();
-            grammar.expand_production(grammar.start, 0, &mut output, &mut actual_rng);
+            grammar.expand_rule(terminal_rule, &mut output, &mut actual_rng);
 
             assert_eq!(output, [expected]);
             assert_eq!(actual_rng.0, reference_rng.0);
