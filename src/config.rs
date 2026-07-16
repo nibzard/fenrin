@@ -416,11 +416,22 @@ fn compile_rules(
                 _ => None,
             })
             .collect();
+        let terminal_by_ticket = production_by_ticket
+            .as_deref()
+            .zip(terminal_units.as_deref())
+            .map(|(production_by_ticket, terminal_units)| {
+                production_by_ticket
+                    .iter()
+                    .map(|production| terminal_units[usize::from(*production)])
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            });
 
         rules.push(Rule {
             productions,
             total_weight,
             production_by_ticket,
+            terminal_by_ticket,
             terminal_units: terminal_units.map(Vec::into_boxed_slice),
         });
     }

@@ -46,6 +46,7 @@ pub(crate) struct Rule {
     pub(crate) productions: Vec<Production>,
     pub(crate) total_weight: usize,
     pub(crate) production_by_ticket: Option<Box<[u8]>>,
+    pub(crate) terminal_by_ticket: Option<Box<[Unit]>>,
     pub(crate) terminal_units: Option<Box<[Unit]>>,
 }
 
@@ -167,6 +168,80 @@ pub(crate) enum SoftConstraint {
     },
 }
 
+#[derive(Clone, Copy, Debug)]
+struct EliteEntry {
+    score: u64,
+    slot: u8,
+    segment_count: u8,
+}
+
+impl EliteEntry {
+    const EMPTY: Self = Self {
+        score: 0,
+        slot: 0,
+        segment_count: 0,
+    };
+}
+
+#[derive(Debug)]
+struct ElitePool {
+    entries: [EliteEntry; ELITE_POOL],
+    segments: [[u8; MAX_UNITS]; ELITE_POOL],
+    len: usize,
+}
+
+impl ElitePool {
+    fn new() -> Self {
+        Self {
+            entries: [EliteEntry::EMPTY; ELITE_POOL],
+            segments: [[0; MAX_UNITS]; ELITE_POOL],
+            len: 0,
+        }
+    }
+
+    fn cutoff(&self) -> Option<u64> {
+        (self.len == ELITE_POOL).then(|| self.entries[ELITE_POOL - 1].score)
+    }
+
+    fn consider(&mut self, score: u64, units: &[Unit]) {
+        let insertion = self.entries[..self.len].partition_point(|entry| entry.score <= score);
+        if insertion == ELITE_POOL {
+            return;
+        }
+
+        let slot = if self.len < ELITE_POOL {
+            self.len
+        } else {
+            usize::from(self.entries[ELITE_POOL - 1].slot)
+        };
+        let mut segment_count = 0;
+        for segment in units.iter().filter_map(|unit| unit.segment_index()) {
+            self.segments[slot][segment_count] =
+                u8::try_from(segment).expect("segment limit fits in u8");
+            segment_count += 1;
+        }
+        let entry = EliteEntry {
+            score,
+            slot: u8::try_from(slot).expect("elite pool size fits in u8"),
+            segment_count: u8::try_from(segment_count).expect("unit limit fits in u8"),
+        };
+
+        if self.len < ELITE_POOL {
+            self.entries.copy_within(insertion..self.len, insertion + 1);
+            self.len += 1;
+        } else {
+            self.entries
+                .copy_within(insertion..ELITE_POOL - 1, insertion + 1);
+        }
+        self.entries[insertion] = entry;
+    }
+
+    fn segments(&self, index: usize) -> &[u8] {
+        let entry = self.entries[index];
+        &self.segments[usize::from(entry.slot)][..usize::from(entry.segment_count)]
+    }
+}
+
 #[derive(Debug)]
 pub struct Grammar {
     pub(crate) segments: Vec<Segment>,
@@ -224,7 +299,7 @@ impl Grammar {
     pub fn generate_name(&self, rng: &mut Rng) -> Result<String, &'static str> {
         for _ in 0..SHAPE_ATTEMPTS {
             let start_production = self.pick_production(self.start, rng);
-            let mut candidates: Vec<(u64, String)> = Vec::with_capacity(ELITE_POOL);
+            let mut candidates = ElitePool::new();
             let mut accepted = 0;
             let mut units = Vec::new();
 
@@ -238,16 +313,9 @@ impl Grammar {
                     continue;
                 }
 
-                let cutoff = (candidates.len() == ELITE_POOL)
-                    .then(|| candidates.last().expect("full elite pool").0);
+                let cutoff = candidates.cutoff();
                 let score = self.score(&units, cutoff);
-                let insertion = candidates.partition_point(|candidate| candidate.0 <= score);
-                if candidates.len() < ELITE_POOL {
-                    candidates.insert(insertion, (score, self.render(&units)));
-                } else if insertion < ELITE_POOL {
-                    candidates.pop();
-                    candidates.insert(insertion, (score, self.render(&units)));
-                }
+                candidates.consider(score, &units);
 
                 accepted += 1;
                 if accepted == CANDIDATE_POOL {
@@ -255,9 +323,9 @@ impl Grammar {
                 }
             }
 
-            if !candidates.is_empty() {
-                let choice = rng.index(candidates.len());
-                return Ok(candidates.swap_remove(choice).1);
+            if candidates.len != 0 {
+                let choice = rng.index(candidates.len);
+                return Ok(self.render_segments(candidates.segments(choice)));
             }
         }
 
@@ -280,6 +348,12 @@ impl Grammar {
     }
 
     fn expand_rule(&self, rule: usize, output: &mut Vec<Unit>, rng: &mut Rng) {
+        if let Some(terminals) = &self.rules[rule].terminal_by_ticket {
+            let ticket = rng.index(self.rules[rule].total_weight);
+            output.push(terminals[ticket]);
+            return;
+        }
+
         let production = self.pick_production(rule, rng);
         if let Some(terminals) = &self.rules[rule].terminal_units {
             output.push(terminals[production]);
@@ -423,18 +497,15 @@ impl Grammar {
         score
     }
 
-    fn render(&self, units: &[Unit]) -> String {
-        let capacity = units
+    fn render_segments(&self, segments: &[u8]) -> String {
+        let capacity = segments
             .iter()
-            .filter_map(|unit| unit.segment_index())
-            .map(|segment| self.segments[segment].spelling.len())
+            .map(|segment| self.segments[usize::from(*segment)].spelling.len())
             .sum();
         let mut output = String::with_capacity(capacity);
 
-        for unit in units {
-            if let Some(segment) = unit.segment_index() {
-                output.push_str(&self.segments[segment].spelling);
-            }
+        for segment in segments {
+            output.push_str(&self.segments[usize::from(*segment)].spelling);
         }
 
         output
@@ -509,4 +580,89 @@ fn pattern_matches(pattern: &[Matcher], units: &[Unit], start: usize, grammar: &
             .iter()
             .zip(&units[start..])
             .all(|(matcher, unit)| matcher.matches(*unit, grammar))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Write as _;
+
+    use super::*;
+    use crate::config;
+
+    #[test]
+    fn dense_terminal_table_preserves_weighted_tickets_and_rng_advance() {
+        let grammar = config::parse(
+            "segments = A B C\n\
+             start = NAME\n\
+             rule NAME = 1: @T\n\
+             rule T = 2: A | 1: B | 3: C\n",
+        )
+        .unwrap();
+        let terminal_rule = 1;
+        let expected_by_ticket = [
+            Unit::segment(0),
+            Unit::segment(0),
+            Unit::segment(1),
+            Unit::segment(2),
+            Unit::segment(2),
+            Unit::segment(2),
+        ];
+        assert_eq!(
+            grammar.rules[terminal_rule].terminal_by_ticket.as_deref(),
+            Some(expected_by_ticket.as_slice())
+        );
+
+        for seed in 0..256 {
+            let mut reference_rng = Rng::new(seed);
+            let expected = expected_by_ticket[reference_rng.index(expected_by_ticket.len())];
+
+            let mut actual_rng = Rng::new(seed);
+            let mut output = Vec::new();
+            grammar.expand_rule(terminal_rule, &mut output, &mut actual_rng);
+
+            assert_eq!(output, [expected]);
+            assert_eq!(actual_rng.0, reference_rng.0);
+        }
+    }
+
+    #[test]
+    fn elite_pool_keeps_stable_top_four_in_packed_slots() {
+        let mut pool = ElitePool::new();
+        pool.consider(2, &[Unit::segment(0), Unit::BOUNDARY, Unit::segment(255)]);
+        pool.consider(1, &[Unit::segment(1)]);
+        pool.consider(2, &[Unit::segment(2)]);
+        pool.consider(0, &[Unit::segment(3)]);
+
+        assert_eq!(pool.cutoff(), Some(2));
+        assert_eq!(pool.segments(0), [3]);
+        assert_eq!(pool.segments(1), [1]);
+        assert_eq!(pool.segments(2), [0, 255]);
+        assert_eq!(pool.segments(3), [2]);
+
+        pool.consider(2, &[Unit::segment(4)]);
+        assert_eq!(pool.segments(3), [2], "later score ties stay outside");
+
+        pool.consider(1, &[Unit::segment(5)]);
+        assert_eq!(pool.segments(0), [3]);
+        assert_eq!(pool.segments(1), [1]);
+        assert_eq!(pool.segments(2), [5]);
+        assert_eq!(pool.segments(3), [0, 255]);
+    }
+
+    #[test]
+    fn packed_rendering_handles_boundaries_multibyte_spelling_and_segment_255() {
+        let mut source = String::from("segments =");
+        for index in 0..=255 {
+            write!(source, " S{index}").unwrap();
+        }
+        source.push_str(
+            "\nspell S0 = Å\n\
+             spell S255 = Ö\n\
+             start = NAME\n\
+             rule NAME = 1: S0 . S255\n",
+        );
+
+        let grammar = config::parse(&source).unwrap();
+        assert_eq!(grammar.generate_name(&mut Rng::new(7)).unwrap(), "ÅÖ");
+    }
 }
