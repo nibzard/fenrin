@@ -299,37 +299,47 @@ impl Grammar {
     pub fn generate_name(&self, rng: &mut Rng) -> Result<String, &'static str> {
         for _ in 0..SHAPE_ATTEMPTS {
             let start_production = self.pick_production(self.start, rng);
-            let mut candidates = ElitePool::new();
-            let mut accepted = 0;
-            let mut units = Vec::new();
-
-            for _ in 0..FILL_ATTEMPTS {
-                self.generate_underlying(start_production, &mut units, rng);
-                if !self.apply_rewrites(&mut units) || !self.is_well_formed(&units) {
-                    continue;
-                }
-
-                if !units.iter().any(|unit| unit.segment_index().is_some()) {
-                    continue;
-                }
-
-                let cutoff = candidates.cutoff();
-                let score = self.score(&units, cutoff);
-                candidates.consider(score, &units);
-
-                accepted += 1;
-                if accepted == CANDIDATE_POOL {
-                    break;
-                }
-            }
-
-            if candidates.len != 0 {
-                let choice = rng.index(candidates.len);
-                return Ok(self.render_segments(candidates.segments(choice)));
+            if let Some(name) = self.generate_shape(start_production, rng) {
+                return Ok(name);
             }
         }
 
         Err("grammar could not produce a well-formed name")
+    }
+
+    fn generate_shape(&self, start_production: usize, rng: &mut Rng) -> Option<String> {
+        let mut candidates = ElitePool::new();
+        let mut accepted = 0;
+        let mut units = Vec::new();
+
+        for _ in 0..FILL_ATTEMPTS {
+            self.generate_underlying(start_production, &mut units, rng);
+            if !self.apply_rewrites(&mut units) || !self.is_well_formed(&units) {
+                continue;
+            }
+
+            if !units.iter().any(|unit| unit.segment_index().is_some()) {
+                continue;
+            }
+
+            let cutoff = candidates.cutoff();
+            let score = self.score(&units, cutoff);
+            candidates.consider(score, &units);
+
+            accepted += 1;
+            // Scores are sums of nonnegative penalties. Once the stable elite
+            // contains four zero-score candidates, no later fill can displace
+            // any of them, including a later zero-score tie.
+            if accepted == CANDIDATE_POOL || candidates.cutoff() == Some(0) {
+                break;
+            }
+        }
+
+        if candidates.len == 0 {
+            return None;
+        }
+        let choice = rng.index(candidates.len);
+        Some(self.render_segments(candidates.segments(choice)))
     }
 
     fn generate_underlying(&self, start_production: usize, units: &mut Vec<Unit>, rng: &mut Rng) {
@@ -584,10 +594,152 @@ fn pattern_matches(pattern: &[Matcher], units: &[Unit], start: usize, grammar: &
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, HashMap};
     use std::fmt::Write as _;
 
     use super::*;
-    use crate::config;
+    use crate::{BUNDLED_CONFIGS, config};
+
+    #[derive(Debug)]
+    struct ShapeDiagnostics {
+        accepted: usize,
+        score_counts: BTreeMap<u64, usize>,
+        selected_score_counts: BTreeMap<u64, usize>,
+        saturation_accepted_index: Option<usize>,
+        saturation_fill_index: Option<usize>,
+    }
+
+    fn diagnose_shape(
+        grammar: &Grammar,
+        start_production: usize,
+        rng: &mut Rng,
+    ) -> ShapeDiagnostics {
+        let mut candidates = ElitePool::new();
+        let mut accepted = 0;
+        let mut units = Vec::new();
+        let mut score_counts = BTreeMap::new();
+        let mut saturation_accepted_index = None;
+        let mut saturation_fill_index = None;
+
+        for fill in 1..=FILL_ATTEMPTS {
+            grammar.generate_underlying(start_production, &mut units, rng);
+            if !grammar.apply_rewrites(&mut units) || !grammar.is_well_formed(&units) {
+                continue;
+            }
+            if !units.iter().any(|unit| unit.segment_index().is_some()) {
+                continue;
+            }
+
+            // Diagnostics deliberately compute the complete score rather than
+            // using the elite cutoff. This pass is never part of timed code.
+            let score = grammar.score(&units, None);
+            *score_counts.entry(score).or_insert(0) += 1;
+            candidates.consider(score, &units);
+            accepted += 1;
+
+            if saturation_accepted_index.is_none() && candidates.cutoff() == Some(0) {
+                saturation_accepted_index = Some(accepted);
+                saturation_fill_index = Some(fill);
+            }
+            if accepted == CANDIDATE_POOL {
+                break;
+            }
+        }
+
+        let mut selected_score_counts = BTreeMap::new();
+        for entry in &candidates.entries[..candidates.len] {
+            *selected_score_counts.entry(entry.score).or_insert(0) += 1;
+        }
+        ShapeDiagnostics {
+            accepted,
+            score_counts,
+            selected_score_counts,
+            saturation_accepted_index,
+            saturation_fill_index,
+        }
+    }
+
+    fn generate_name_without_saturation(
+        grammar: &Grammar,
+        rng: &mut Rng,
+    ) -> Result<String, &'static str> {
+        for _ in 0..SHAPE_ATTEMPTS {
+            let start_production = grammar.pick_production(grammar.start, rng);
+            let mut candidates = ElitePool::new();
+            let mut accepted = 0;
+            let mut units = Vec::new();
+
+            for _ in 0..FILL_ATTEMPTS {
+                grammar.generate_underlying(start_production, &mut units, rng);
+                if !grammar.apply_rewrites(&mut units) || !grammar.is_well_formed(&units) {
+                    continue;
+                }
+                if !units.iter().any(|unit| unit.segment_index().is_some()) {
+                    continue;
+                }
+
+                let score = grammar.score(&units, candidates.cutoff());
+                candidates.consider(score, &units);
+                accepted += 1;
+                if accepted == CANDIDATE_POOL {
+                    break;
+                }
+            }
+
+            if candidates.len != 0 {
+                let choice = rng.index(candidates.len);
+                return Ok(grammar.render_segments(candidates.segments(choice)));
+            }
+        }
+        Err("grammar could not produce a well-formed name")
+    }
+
+    fn pool_snapshot(pool: &ElitePool) -> Vec<(u64, Vec<u8>)> {
+        (0..pool.len)
+            .map(|index| (pool.entries[index].score, pool.segments(index).to_vec()))
+            .collect()
+    }
+
+    #[derive(Debug)]
+    struct Quality {
+        sampled: usize,
+        unique: usize,
+        collision_pairs: u64,
+        bytes: usize,
+    }
+
+    fn quality(
+        grammar: &Grammar,
+        seeds: &[u64],
+        count_per_seed: usize,
+        optimized: bool,
+    ) -> Quality {
+        let mut frequencies = HashMap::<String, u64>::new();
+        let mut bytes = 0;
+        for &seed in seeds {
+            let mut rng = Rng::new(seed);
+            for _ in 0..count_per_seed {
+                let name = if optimized {
+                    grammar.generate_name(&mut rng)
+                } else {
+                    generate_name_without_saturation(grammar, &mut rng)
+                }
+                .unwrap();
+                bytes += name.len();
+                *frequencies.entry(name).or_insert(0) += 1;
+            }
+        }
+        let collision_pairs = frequencies
+            .values()
+            .map(|frequency| frequency * (frequency - 1) / 2)
+            .sum();
+        Quality {
+            sampled: seeds.len() * count_per_seed,
+            unique: frequencies.len(),
+            collision_pairs,
+            bytes,
+        }
+    }
 
     #[test]
     fn dense_terminal_table_preserves_weighted_tickets_and_rng_advance() {
@@ -647,6 +799,191 @@ mod tests {
         assert_eq!(pool.segments(1), [1]);
         assert_eq!(pool.segments(2), [5]);
         assert_eq!(pool.segments(3), [0, 255]);
+    }
+
+    #[test]
+    fn four_zero_early_stop_is_exhaustively_equivalent_for_every_accepted_count() {
+        // Invalid fills only affect how many accepted candidates reach the
+        // tournament. Exhausting every binary score sequence for N=0..16 thus
+        // covers the finite 64-fill cap as well as the 16-accepted cap.
+        let mut selected_zero_votes = 0_u64;
+        for accepted in 0..=CANDIDATE_POOL {
+            for zero_mask in 0_u32..1_u32 << accepted {
+                let mut full = ElitePool::new();
+                let mut stopped = ElitePool::new();
+                let mut saturated = false;
+
+                for index in 0..accepted {
+                    let score = if zero_mask & (1 << index) == 0 {
+                        1 + (index % 3) as u64
+                    } else {
+                        0
+                    };
+                    let units = [Unit::segment(index)];
+                    full.consider(score, &units);
+                    if !saturated {
+                        stopped.consider(score, &units);
+                        saturated = stopped.cutoff() == Some(0);
+                    }
+                }
+
+                assert_eq!(pool_snapshot(&stopped), pool_snapshot(&full));
+                if accepted == CANDIDATE_POOL {
+                    selected_zero_votes += full.entries[..full.len]
+                        .iter()
+                        .filter(|entry| entry.score == 0)
+                        .count() as u64;
+                }
+            }
+        }
+
+        // For sixteen iid equiprobable zero/positive scores, the exact chance
+        // that a uniformly selected elite entry has score zero is
+        // 261292 / (2^16 * 4). The exhaustive tournament above independently
+        // recovers that ideal-distribution numerator.
+        assert_eq!(selected_zero_votes, 261_292);
+    }
+
+    #[test]
+    #[ignore = "diagnostic: cargo test --lib bundled_start_score_and_saturation_diagnostics -- --ignored --nocapture"]
+    fn bundled_start_score_and_saturation_diagnostics() {
+        const SAMPLES_PER_START: usize = 256;
+
+        for (profile_index, &(profile, source)) in BUNDLED_CONFIGS.iter().enumerate() {
+            let grammar = config::parse(source).unwrap();
+            let start_count = grammar.rules[grammar.start].productions.len();
+            for start_production in 0..start_count {
+                let mut successes = 0;
+                let mut total_accepted = 0;
+                let mut total_elite = 0;
+                let mut saturated_at = Vec::new();
+                let mut saturated_fill = Vec::new();
+                let mut score_counts = BTreeMap::<u64, usize>::new();
+                let mut selected_score_counts = BTreeMap::<u64, usize>::new();
+
+                for sample in 0..SAMPLES_PER_START {
+                    let seed = ((profile_index as u64) << 48)
+                        ^ ((start_production as u64) << 32)
+                        ^ sample as u64;
+                    let diagnostics =
+                        diagnose_shape(&grammar, start_production, &mut Rng::new(seed));
+                    successes += usize::from(diagnostics.accepted != 0);
+                    total_accepted += diagnostics.accepted;
+                    total_elite += diagnostics.accepted.min(ELITE_POOL);
+                    if let Some(index) = diagnostics.saturation_accepted_index {
+                        saturated_at.push(index);
+                        saturated_fill.push(
+                            diagnostics
+                                .saturation_fill_index
+                                .expect("accepted and fill saturation occur together"),
+                        );
+                    }
+                    for (score, count) in diagnostics.score_counts {
+                        *score_counts.entry(score).or_insert(0) += count;
+                    }
+                    for (score, count) in diagnostics.selected_score_counts {
+                        *selected_score_counts.entry(score).or_insert(0) += count;
+                    }
+                }
+
+                saturated_at.sort_unstable();
+                saturated_fill.sort_unstable();
+                let saturation_rate = saturated_at.len() as f64 / SAMPLES_PER_START as f64;
+                let mean_index = (!saturated_at.is_empty())
+                    .then(|| saturated_at.iter().sum::<usize>() as f64 / saturated_at.len() as f64);
+                let percentile = |values: &[usize], percent: usize| {
+                    (!values.is_empty()).then(|| values[(values.len() - 1) * percent / 100])
+                };
+                eprintln!(
+                    "{profile} start={start_production} success={successes}/{SAMPLES_PER_START} saturation={saturation_rate:.3} mean-index={mean_index:?} p50-index={:?} p90-index={:?} p50-fill={:?} p90-fill={:?} raw-score-pmf={score_counts:?} selected-score-pmf={selected_score_counts:?}",
+                    percentile(&saturated_at, 50),
+                    percentile(&saturated_at, 90),
+                    percentile(&saturated_fill, 50),
+                    percentile(&saturated_fill, 90),
+                );
+
+                assert!(successes > 0, "{profile} start {start_production}");
+                assert_eq!(
+                    score_counts.values().sum::<usize>(),
+                    total_accepted,
+                    "{profile} start {start_production} score PMF lost accepted fills"
+                );
+                assert_eq!(selected_score_counts.values().sum::<usize>(), total_elite);
+                if matches!(profile, "fenrin.conf" | "japanese.conf") {
+                    assert_eq!(
+                        saturated_at.len(),
+                        SAMPLES_PER_START,
+                        "{profile} start {start_production} did not saturate"
+                    );
+                }
+                assert!(
+                    saturated_at
+                        .iter()
+                        .all(|index| (ELITE_POOL..=CANDIDATE_POOL).contains(index))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unsamplable_shapes_retain_all_finite_attempt_limits() {
+        let grammar = config::parse(
+            "segments = A\n\
+             feature rejected yes = A\n\
+             start = NAME\n\
+             rule NAME = 1: A\n\
+             hard max rejected yes 0\n",
+        )
+        .unwrap();
+
+        for seed in 0..64 {
+            let mut optimized_rng = Rng::new(seed);
+            let mut legacy_rng = Rng::new(seed);
+            assert_eq!(
+                grammar.generate_name(&mut optimized_rng),
+                generate_name_without_saturation(&grammar, &mut legacy_rng)
+            );
+            assert_eq!(optimized_rng.0, legacy_rng.0);
+        }
+    }
+
+    #[test]
+    #[ignore = "campaign check: cargo test --lib saturation_preserves_multi_seed_name_quality -- --ignored --nocapture"]
+    fn saturation_preserves_multi_seed_name_quality() {
+        const SEEDS: [u64; 8] = [0, 1, 2, 7, 42, 999, 65_537, u64::MAX];
+        const COUNT_PER_SEED: usize = 5_000;
+
+        for profile in ["fenrin.conf", "japanese.conf"] {
+            let source = BUNDLED_CONFIGS
+                .iter()
+                .find_map(|(name, source)| (*name == profile).then_some(*source))
+                .unwrap();
+            let grammar = config::parse(source).unwrap();
+            let optimized = quality(&grammar, &SEEDS, COUNT_PER_SEED, true);
+            let legacy = quality(&grammar, &SEEDS, COUNT_PER_SEED, false);
+
+            let duplicate_rate = |quality: &Quality| {
+                (quality.sampled - quality.unique) as f64 / quality.sampled as f64
+            };
+            let collision_bits = |quality: &Quality| {
+                let pairs = quality.sampled as f64 * (quality.sampled - 1) as f64 / 2.0;
+                -(quality.collision_pairs as f64 / pairs).log2()
+            };
+            let mean_bytes = |quality: &Quality| quality.bytes as f64 / quality.sampled as f64;
+
+            assert!(
+                (duplicate_rate(&optimized) - duplicate_rate(&legacy)).abs() < 0.005,
+                "{profile}: optimized={optimized:?}, legacy={legacy:?}"
+            );
+            assert!(
+                (collision_bits(&optimized) - collision_bits(&legacy)).abs() < 0.15,
+                "{profile}: optimized={optimized:?}, legacy={legacy:?}"
+            );
+            assert!(
+                (mean_bytes(&optimized) - mean_bytes(&legacy)).abs() < 0.05,
+                "{profile}: optimized={optimized:?}, legacy={legacy:?}"
+            );
+        }
     }
 
     #[test]
