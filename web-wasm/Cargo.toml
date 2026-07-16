@@ -1,0 +1,18 @@
+[package]
+name = "fenrin-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "WebAssembly adapter for Fenrin's phonological name generator"
+repository = "https://github.com/nibzard/fenrin"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fenrin = { path = ".." }
+# Fenrin uses getrandom in its native CLI. Selecting the browser backend here
+# makes that shared dependency compile for wasm32-unknown-unknown.
+getrandom = { version = "0.4", features = ["wasm_js"] }
+wasm-bindgen = "0.2"
