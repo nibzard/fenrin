@@ -73,6 +73,10 @@ impl UnitStorage for FixedUnits {
     }
 
     fn push_unit(&mut self, unit: Unit) {
+        debug_assert!(
+            self.len < MAX_UNITS,
+            "validated underlying expansion exceeded MAX_UNITS"
+        );
         self.storage[self.len] = unit;
         self.len += 1;
     }
@@ -1143,6 +1147,49 @@ mod tests {
             assert_eq!(runtime_rng.0, reference_rng.0, "seed {seed}");
             assert!(matches!(runtime.as_deref(), Ok("AB" | "C")));
         }
+    }
+
+    #[test]
+    fn mixed_length_rewrites_and_nested_overflow_retain_generic_guards() {
+        let grammar = config::parse(
+            "segments = A B C D\n\
+             start = NAME\n\
+             rule NAME = 1: @T\n\
+             rule T = 1: A C | 1: C A\n\
+             rewrite A -> A B\n\
+             rewrite B C -> C\n\
+             rewrite C -> D\n",
+        )
+        .unwrap();
+        assert!(!grammar.rewrites_preserve_length);
+
+        for seed in 0..4096 {
+            let mut runtime_rng = Rng::new(seed);
+            let mut reference_rng = Rng::new(seed);
+            let runtime = grammar.generate_name(&mut runtime_rng);
+            let reference =
+                generate_name_with_policy(&grammar, &mut reference_rng, TestPolicy::FirstZero)
+                    .map(|selection| selection.name);
+            assert_eq!(runtime, reference, "seed {seed}");
+            assert_eq!(runtime_rng.0, reference_rng.0, "seed {seed}");
+            assert!(matches!(runtime.as_deref(), Ok("AD" | "DAB")));
+        }
+
+        let mut source =
+            String::from("segments = A\nstart = NAME\nrule NAME = 1: @LEFT @RIGHT\nrule LEFT = 1:");
+        for _ in 0..32 {
+            source.push_str(" A");
+        }
+        source.push_str("\nrule RIGHT = 1:");
+        for _ in 0..33 {
+            source.push_str(" A");
+        }
+        source.push('\n');
+
+        assert_eq!(
+            config::parse(&source).unwrap_err(),
+            "start rule can expand to 65 units; maximum is 64"
+        );
     }
 
     #[test]
