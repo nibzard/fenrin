@@ -77,6 +77,9 @@ pub fn parse(source: &str) -> Result<Grammar, String> {
 
     let rewrites = compile_rewrites(&directives, &segment_ids)?;
     let pair_rewrites = PairRewriteTable::compile(&rewrites, segments.len());
+    let rewrites_preserve_length = rewrites
+        .iter()
+        .all(|rewrite| rewrite.pattern.len() == rewrite.replacement.len());
     let hard_constraints = compile_hard_constraints(&directives, &segment_ids, &segments)?;
     let soft_constraints = compile_soft_constraints(&directives, &segment_ids, &segments)?;
 
@@ -86,6 +89,7 @@ pub fn parse(source: &str) -> Result<Grammar, String> {
         start,
         rewrites,
         pair_rewrites,
+        rewrites_preserve_length,
         hard_constraints,
         soft_constraints,
     })

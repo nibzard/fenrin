@@ -28,6 +28,64 @@ impl Unit {
     }
 }
 
+trait UnitStorage {
+    fn clear_units(&mut self);
+    fn push_unit(&mut self, unit: Unit);
+    fn units(&self) -> &[Unit];
+    fn units_mut(&mut self) -> &mut [Unit];
+}
+
+impl UnitStorage for Vec<Unit> {
+    fn clear_units(&mut self) {
+        self.clear();
+    }
+
+    fn push_unit(&mut self, unit: Unit) {
+        self.push(unit);
+    }
+
+    fn units(&self) -> &[Unit] {
+        self
+    }
+
+    fn units_mut(&mut self) -> &mut [Unit] {
+        self
+    }
+}
+
+struct FixedUnits {
+    storage: [Unit; MAX_UNITS],
+    len: usize,
+}
+
+impl FixedUnits {
+    fn new() -> Self {
+        Self {
+            storage: [Unit::BOUNDARY; MAX_UNITS],
+            len: 0,
+        }
+    }
+}
+
+impl UnitStorage for FixedUnits {
+    fn clear_units(&mut self) {
+        self.len = 0;
+    }
+
+    fn push_unit(&mut self, unit: Unit) {
+        self.storage[self.len] = unit;
+        self.len += 1;
+    }
+
+    fn units(&self) -> &[Unit] {
+        &self.storage[..self.len]
+    }
+
+    fn units_mut(&mut self) -> &mut [Unit] {
+        &mut self.storage[..self.len]
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Symbol {
     Segment(usize),
@@ -249,6 +307,7 @@ pub struct Grammar {
     pub(crate) start: usize,
     pub(crate) rewrites: Vec<Rewrite>,
     pub(crate) pair_rewrites: Option<PairRewriteTable>,
+    pub(crate) rewrites_preserve_length: bool,
     pub(crate) hard_constraints: Vec<HardConstraint>,
     pub(crate) soft_constraints: Vec<SoftConstraint>,
 }
@@ -308,29 +367,54 @@ impl Grammar {
     }
 
     fn generate_shape(&self, start_production: usize, rng: &mut Rng) -> Option<String> {
+        if self.rewrites_preserve_length {
+            self.generate_shape_with(
+                start_production,
+                rng,
+                FixedUnits::new(),
+                |grammar, units| grammar.apply_fixed_rewrites(units.units_mut()),
+            )
+        } else {
+            self.generate_shape_with(start_production, rng, Vec::new(), |grammar, units| {
+                grammar.apply_rewrites(units)
+            })
+        }
+    }
+
+    fn generate_shape_with<S, F>(
+        &self,
+        start_production: usize,
+        rng: &mut Rng,
+        mut units: S,
+        apply_rewrites: F,
+    ) -> Option<String>
+    where
+        S: UnitStorage,
+        F: Fn(&Self, &mut S) -> bool,
+    {
         let mut candidates = ElitePool::new();
         let mut accepted = 0;
-        let mut units = Vec::new();
 
         for _ in 0..FILL_ATTEMPTS {
             self.generate_underlying(start_production, &mut units, rng);
-            if !self.apply_rewrites(&mut units) || !self.is_well_formed(&units) {
+            if !apply_rewrites(self, &mut units) || !self.is_well_formed(units.units()) {
                 continue;
             }
 
+            let units = units.units();
             if !units.iter().any(|unit| unit.segment_index().is_some()) {
                 continue;
             }
 
             let cutoff = candidates.cutoff();
-            let score = self.score(&units, cutoff);
+            let score = self.score(units, cutoff);
             // Soft scores are sums of nonnegative penalties. The first valid
             // zero is therefore globally optimal and retains the raw weighted
             // identity distribution conditional on validity and score zero.
             if score == 0 {
-                return Some(self.render_units(&units));
+                return Some(self.render_units(units));
             }
-            candidates.consider(score, &units);
+            candidates.consider(score, units);
 
             accepted += 1;
             if accepted == CANDIDATE_POOL {
@@ -345,8 +429,13 @@ impl Grammar {
         Some(self.render_segments(candidates.segments(choice)))
     }
 
-    fn generate_underlying(&self, start_production: usize, units: &mut Vec<Unit>, rng: &mut Rng) {
-        units.clear();
+    fn generate_underlying<S: UnitStorage>(
+        &self,
+        start_production: usize,
+        units: &mut S,
+        rng: &mut Rng,
+    ) {
+        units.clear_units();
         self.expand_production(self.start, start_production, units, rng);
     }
 
@@ -360,37 +449,65 @@ impl Grammar {
             .partition_point(|production| production.upper_bound <= ticket)
     }
 
-    fn expand_rule(&self, rule: usize, output: &mut Vec<Unit>, rng: &mut Rng) {
+    fn expand_rule<S: UnitStorage>(&self, rule: usize, output: &mut S, rng: &mut Rng) {
         if let Some(terminals) = &self.rules[rule].terminal_by_ticket {
             let ticket = rng.index(self.rules[rule].total_weight);
-            output.push(terminals[ticket]);
+            output.push_unit(terminals[ticket]);
             return;
         }
 
         let production = self.pick_production(rule, rng);
         if let Some(terminals) = &self.rules[rule].terminal_units {
-            output.push(terminals[production]);
+            output.push_unit(terminals[production]);
             return;
         }
         self.expand_production(rule, production, output, rng);
     }
 
-    fn expand_production(
+    fn expand_production<S: UnitStorage>(
         &self,
         rule: usize,
         production: usize,
-        output: &mut Vec<Unit>,
+        output: &mut S,
         rng: &mut Rng,
     ) {
         let production = &self.rules[rule].productions[production];
 
         for symbol in &production.symbols {
             match *symbol {
-                Symbol::Segment(segment) => output.push(Unit::segment(segment)),
-                Symbol::Boundary => output.push(Unit::BOUNDARY),
+                Symbol::Segment(segment) => output.push_unit(Unit::segment(segment)),
+                Symbol::Boundary => output.push_unit(Unit::BOUNDARY),
                 Symbol::Rule(nested) => self.expand_rule(nested, output, rng),
             }
         }
+    }
+
+    fn apply_fixed_rewrites(&self, units: &mut [Unit]) -> bool {
+        debug_assert!(self.rewrites_preserve_length);
+        if let Some(rewrites) = &self.pair_rewrites {
+            rewrites.apply(units);
+            return true;
+        }
+
+        for rewrite in &self.rewrites {
+            if rewrite.pattern.is_empty() {
+                return false;
+            }
+            debug_assert_eq!(rewrite.pattern.len(), rewrite.replacement.len());
+
+            let mut index = 0;
+            while index < units.len() {
+                if units[index..].starts_with(&rewrite.pattern) {
+                    units[index..index + rewrite.pattern.len()]
+                        .copy_from_slice(&rewrite.replacement);
+                    index += rewrite.pattern.len();
+                } else {
+                    index += 1;
+                }
+            }
+        }
+
+        true
     }
 
     fn apply_rewrites(&self, units: &mut Vec<Unit>) -> bool {
@@ -877,6 +994,154 @@ mod tests {
 
             assert_eq!(output, [expected]);
             assert_eq!(actual_rng.0, reference_rng.0);
+        }
+    }
+
+    #[test]
+    fn fixed_storage_matches_vec_expansion_and_rewrites_for_all_profiles() {
+        const SAMPLES_PER_START: usize = 128;
+
+        for (profile_index, &(profile, source)) in BUNDLED_CONFIGS.iter().enumerate() {
+            let grammar = config::parse(source).unwrap();
+            assert!(
+                grammar.rewrites_preserve_length,
+                "bundled profile {profile} unexpectedly needs the Vec fallback"
+            );
+
+            let mut fixed = FixedUnits::new();
+            let mut vector = Vec::new();
+            for start_production in 0..grammar.rules[grammar.start].productions.len() {
+                for sample in 0..SAMPLES_PER_START {
+                    let seed = ((profile_index as u64) << 48)
+                        ^ ((start_production as u64) << 32)
+                        ^ sample as u64;
+                    let mut fixed_rng = Rng::new(seed);
+                    let mut vector_rng = Rng::new(seed);
+
+                    grammar.generate_underlying(start_production, &mut fixed, &mut fixed_rng);
+                    grammar.generate_underlying(start_production, &mut vector, &mut vector_rng);
+                    assert_eq!(fixed.units(), vector, "{profile} start {start_production}");
+                    assert_eq!(
+                        fixed_rng.0, vector_rng.0,
+                        "{profile} start {start_production}"
+                    );
+
+                    let fixed_rewritten = grammar.apply_fixed_rewrites(fixed.units_mut());
+                    let vector_rewritten = grammar.apply_rewrites(&mut vector);
+                    assert_eq!(
+                        fixed_rewritten, vector_rewritten,
+                        "{profile} start {start_production}"
+                    );
+                    assert_eq!(fixed.units(), vector, "{profile} start {start_production}");
+                    assert_eq!(
+                        grammar.is_well_formed(fixed.units()),
+                        grammar.is_well_formed(&vector),
+                        "{profile} start {start_production}"
+                    );
+                    assert_eq!(
+                        grammar.score(fixed.units(), None),
+                        grammar.score(&vector, None),
+                        "{profile} start {start_production}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_runtime_matches_vec_reference_for_all_profiles() {
+        const NAMES_PER_STREAM: usize = 32;
+
+        for (profile_index, &(profile, source)) in BUNDLED_CONFIGS.iter().enumerate() {
+            let grammar = config::parse(source).unwrap();
+            for stream in 0..64_u64 {
+                let seed = ((profile_index as u64) << 56) ^ stream;
+                let mut fixed_rng = Rng::new(seed);
+                let mut vector_rng = Rng::new(seed);
+                for name_index in 0..NAMES_PER_STREAM {
+                    let fixed = grammar.generate_name(&mut fixed_rng);
+                    let vector =
+                        generate_name_with_policy(&grammar, &mut vector_rng, TestPolicy::FirstZero)
+                            .map(|selection| selection.name);
+                    assert_eq!(fixed, vector, "{profile} stream {stream} name {name_index}");
+                    assert_eq!(
+                        fixed_rng.0, vector_rng.0,
+                        "{profile} stream {stream} name {name_index}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_storage_preserves_boundaries_and_exact_maximum_length() {
+        let boundary_grammar = config::parse(
+            "segments = A B C\n\
+             start = NAME\n\
+             rule NAME = 1: A . B . C\n\
+             rewrite A . B -> C . B\n",
+        )
+        .unwrap();
+        assert!(boundary_grammar.rewrites_preserve_length);
+        assert!(boundary_grammar.pair_rewrites.is_none());
+
+        let mut fixed = FixedUnits::new();
+        let mut vector = Vec::new();
+        boundary_grammar.generate_underlying(0, &mut fixed, &mut Rng::new(7));
+        boundary_grammar.generate_underlying(0, &mut vector, &mut Rng::new(7));
+        assert_eq!(fixed.units(), vector);
+        assert!(boundary_grammar.apply_fixed_rewrites(fixed.units_mut()));
+        assert!(boundary_grammar.apply_rewrites(&mut vector));
+        assert_eq!(fixed.units(), vector);
+        assert_eq!(
+            fixed.units(),
+            [
+                Unit::segment(2),
+                Unit::BOUNDARY,
+                Unit::segment(1),
+                Unit::BOUNDARY,
+                Unit::segment(2),
+            ]
+        );
+
+        let mut source = String::from("segments = A\nstart = NAME\nrule NAME = 1:");
+        for _ in 0..MAX_UNITS {
+            source.push_str(" A");
+        }
+        source.push('\n');
+        let maximum_grammar = config::parse(&source).unwrap();
+        let mut fixed_rng = Rng::new(11);
+        let mut vector_rng = Rng::new(11);
+        maximum_grammar.generate_underlying(0, &mut fixed, &mut fixed_rng);
+        maximum_grammar.generate_underlying(0, &mut vector, &mut vector_rng);
+        assert_eq!(fixed.units().len(), MAX_UNITS);
+        assert_eq!(fixed.units(), vector);
+        assert_eq!(fixed_rng.0, vector_rng.0);
+        assert_eq!(maximum_grammar.render_units(fixed.units()).len(), MAX_UNITS);
+    }
+
+    #[test]
+    fn length_changing_rewrites_retain_vec_fallback_semantics() {
+        let grammar = config::parse(
+            "segments = A B C\n\
+             start = NAME\n\
+             rule NAME = 1: @T\n\
+             rule T = 1: A | 1: C\n\
+             rewrite A -> A B\n",
+        )
+        .unwrap();
+        assert!(!grammar.rewrites_preserve_length);
+
+        for seed in 0..4096 {
+            let mut runtime_rng = Rng::new(seed);
+            let mut reference_rng = Rng::new(seed);
+            let runtime = grammar.generate_name(&mut runtime_rng);
+            let reference =
+                generate_name_with_policy(&grammar, &mut reference_rng, TestPolicy::FirstZero)
+                    .map(|selection| selection.name);
+            assert_eq!(runtime, reference, "seed {seed}");
+            assert_eq!(runtime_rng.0, reference_rng.0, "seed {seed}");
+            assert!(matches!(runtime.as_deref(), Ok("AB" | "C")));
         }
     }
 
