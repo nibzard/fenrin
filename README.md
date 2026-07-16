@@ -175,6 +175,38 @@ Effective diversity measures output concentration, not the total number of
 names a profile can produce. Full measurements and quality intervals are in
 `LOG.md`.
 
+The retained campaign levers were dense terminal ticket lookup, packed
+candidate storage with render-once selection, single-owner distinct-name
+deduplication, bounded fixed storage for equal-length rewrites, and an
+opt-in profile-guided (PGO) build. The first-zero policy is the one intentional
+sampling-policy change: it returns the first hard-valid zero-score filling and
+uses the previous bounded top-four fallback when no zero appears. That policy
+changes individual seeded outputs, so it was validated as a distributional
+change rather than claimed as byte-equivalent.
+
+Output-preserving changes matched 40 bundled profile/seed streams byte for
+byte, and the PGO artifact matched its control on all ten profiles. The
+first-zero policy passed the preregistered duplicate-rate, collision-bit,
+rendered-length, shape-share, and zero-score bounds over 12.8 million paired
+draws. These are quality-equivalence results for the tested profiles; they do
+not claim simultaneous coverage for every possible future grammar or metric.
+
+Final PGO raw-generation diagnostics (point estimates, not paired production
+throughput claims) were:
+
+| Profile | Names/sec |
+| --- | ---: |
+| `fenrin` | 10.34M |
+| `japanese` | 5.60M |
+| `ancient-roman` | 3.30M |
+| `slavic` | 3.69M |
+| `klingon` | 3.84M |
+| `oceanic` | 3.88M |
+| `uralic` | 5.90M |
+| `caucasian` | 4.05M |
+| `aurelian` | 2.29M |
+| `obsidian` | 2.68M |
+
 With no counts, it measures batches of 1,000, 10,000, and 1,000,000 outputs.
 After warming up, short batches repeat until their combined timing reaches
 roughly 200 ms; long batches run once. Timing is capped at ten million outputs,
