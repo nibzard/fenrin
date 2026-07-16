@@ -208,6 +208,42 @@ bundled profile sources, and `sas::encode` and `sas::wordlist` expose the SAS
 mapping. Equal seeds produce equal names for the same exact profile source and
 Fenrin version.
 
+## Run in a browser
+
+The static demo in `web/` runs the real Rust generator in WebAssembly. The small
+`web-wasm/` adapter keeps a parsed grammar and seeded RNG in a Web Worker;
+the page requests newline-delimited batches so name generation never competes
+with animation on the main thread. Its pace control ranges from 12 names per
+second through a 420-per-second maximum-flip mode, plus transition-free 60 Hz
+and 120 Hz display ceilings. A rolling readout separates the actual display
+rate from the engine's measured raw Wasm throughput.
+
+Build the browser package and serve the directory over HTTP:
+
+```sh
+scripts/build-web.sh
+python3 -m http.server 4173 --directory web
+```
+
+Then open <http://localhost:4173>. The generated `web/pkg/` directory is
+ignored by Git and can be deployed with the rest of `web/` to any static host.
+Opening `web/index.html` directly with `file://` does not work because browsers
+block module workers and Wasm fetches outside an HTTP origin.
+
+The adapter can also be embedded directly in another site:
+
+```js
+import init, { NameGenerator } from "./pkg/fenrin_web.js";
+
+await init();
+const generator = new NameGenerator("aurelian", 42);
+const names = generator.generate_batch(100).split("\n");
+```
+
+Browser batches are capped at 4,096 names per call to protect the UI thread.
+Run adapter tests with
+`cargo test --manifest-path web-wasm/Cargo.toml --locked`.
+
 <details>
 <summary>Grammar syntax reference</summary>
 

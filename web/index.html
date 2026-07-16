@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090a0c" />
+    <meta
+      name="description"
+      content="Fenrin generates pronounceable fictional names live from phonological rules."
+    />
+    <title>Fenrin — names from sound</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script>
+      if (location.protocol === "file:") {
+        document.documentElement.classList.add("file-mode");
+        window.addEventListener("DOMContentLoaded", () => {
+          document.querySelector("#file-notice").hidden = false;
+        });
+      } else {
+        const app = document.createElement("script");
+        app.type = "module";
+        app.src = "./app.js";
+        document.head.append(app);
+      }
+    </script>
+  </head>
+  <body>
+    <main id="app">
+      <section id="name-field" class="name-field" aria-hidden="true"></section>
+
+      <aside id="file-notice" class="file-notice" hidden>
+        <strong>Fenrin needs a local web server.</strong>
+        <span>First run <code>scripts/build-web.sh</code>.</span>
+        <span>Then run <code>python3 -m http.server 4173 --directory web</code></span>
+        <span>Finally, open <code>http://localhost:4173</code>.</span>
+      </aside>
+
+      <header class="site-header">
+        <div class="identity">
+          <div class="brand-line">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <h1>Fenrin</h1>
+          </div>
+          <p>Names from sound.</p>
+        </div>
+
+        <div class="controls" aria-label="Demo controls">
+          <label class="profile-control">
+            <span>Grammar</span>
+            <span class="select-wrap">
+              <select id="profile-select" aria-label="Name grammar" disabled>
+                <option>Loading</option>
+              </select>
+            </span>
+          </label>
+          <label class="speed-control">
+            <span class="sr-only">Display pace</span>
+            <span class="select-wrap speed-select-wrap">
+              <select id="speed-select" aria-label="Display pace">
+                <option value="2">90/s · Rush</option>
+              </select>
+            </span>
+          </label>
+          <button
+            id="motion-toggle"
+            class="motion-toggle"
+            type="button"
+            aria-label="Pause name motion"
+          >
+            <span class="motion-icon" aria-hidden="true">Ⅱ</span>
+            <span id="motion-label">Pause</span>
+          </button>
+        </div>
+      </header>
+
+      <footer class="site-footer">
+        <div class="runtime-status" id="runtime-status" data-state="loading">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="performance-label">Starting WebAssembly</span>
+        </div>
+        <p>
+          <span class="profile-note">Structural inspiration, not authentic names or vocabulary.</span>
+          <a href="https://github.com/nibzard/fenrin">View source</a>
+        </p>
+      </footer>
+
+      <p class="sr-only">
+        Generated example: <output id="accessible-name">waiting for Fenrin</output>
+      </p>
+      <p id="live-status" class="sr-only" aria-live="polite">
+        Loading the Fenrin name generator.
+      </p>
+
+      <noscript>
+        <p class="noscript-message">JavaScript is required to run the live Fenrin demo.</p>
+      </noscript>
+    </main>
+  </body>
+</html>
