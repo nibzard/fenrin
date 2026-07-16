@@ -4,6 +4,7 @@
 pub mod config;
 pub mod grammar;
 pub mod sas;
+pub mod session;
 
 pub use grammar::{Grammar, Rng};
 

@@ -1,88 +1,144 @@
 # Benchmark-Guided Optimization Loop
 
-Use this process to let a coding agent optimize Fenrin without changing its
-output or hiding regressions. Optimize either name generation or SAS encoding
-in one loop, not both at once.
+Use fixed-work paired measurements for optimization decisions. The primary
+metric is distinct names completed per second through the production session:
+generation, `HashSet` deduplication, first-seen ordering, line formatting, and
+buffering into a counting sink. Grammar parsing and process startup are outside
+the timed region.
 
-## Loop limits
+Raw owned-`String` draws per second remain available as a diagnostic. They are
+not a substitute for the distinct-session result.
 
-- Try at most **8 candidate changes**.
-- Stop early after **3 consecutive rejected candidates**.
-- Make one small, reversible change per iteration.
-- Measure each baseline and candidate **3 times** and compare medians.
-- Treat a 2–5% improvement as uncertain; measure it 5 times before deciding.
+The old three/five-run median tables remain historical evidence only. Existing
+human-readable benchmark commands still work, but new optimization decisions
+must use `--measure` records and the paired runner. A prebuilt binary from
+before the `fenrin-fixed-v1` protocol cannot participate in this design; first
+apply the benchmark-only protocol commit to both comparison revisions.
 
-These limits are long enough to explore several real hypotheses while avoiding
-endless micro-optimization.
+## Freeze the experiment
 
-## Before the loop
-
-1. Work in a clean, isolated branch or worktree. Never discard unrelated local
-   changes.
-2. Choose one primary target: `names` or `sas`.
-3. Freeze `examples/benchmark.rs` and the benchmark commands for the entire
-   loop. If the benchmark itself must change, stop, fix it separately, and
-   establish a new baseline.
-4. Keep the machine conditions stable: use release mode, close heavy background
-   work, and do not run benchmarks in parallel.
-5. Confirm the starting point:
+1. Work in an isolated branch or worktree and keep unrelated changes intact.
+2. Commit benchmark changes separately, then build baseline and candidate from
+   revisions that both contain the same benchmark protocol.
+3. Choose profiles, count, timed sessions, work seeds, confidence rule, and the
+   maximum number of candidates before measuring a candidate.
+4. Keep machine conditions stable. Do not run benchmark series concurrently.
+5. Capture deterministic output and run the correctness gates:
 
    ```sh
    cargo fmt -- --check
    cargo test --all-targets
    cargo clippy --all-targets -- -D warnings
+
+   cargo run --quiet -- --seed 42 --config fenrin 1000 > /tmp/fenrin-before.txt
+   cargo run --quiet -- --seed 42 --config japanese 1000 > /tmp/japanese-before.txt
    ```
 
-## Establish the baseline
+## Fixed-work measurements
 
-Run the relevant command three times and record the median throughput.
+Build the dependency-free benchmark once in each worktree. Separate target
+directories keep both executables available. Run the first build in the
+baseline worktree and the second in the candidate worktree:
 
-For name generation, use two structurally different profiles:
+```sh
+CARGO_TARGET_DIR=/tmp/fenrin-a cargo build --release --example benchmark
+CARGO_TARGET_DIR=/tmp/fenrin-b cargo build --release --example benchmark
+cargo build --release --example paired
+```
+
+The existing exploratory benchmark CLI is unchanged:
 
 ```sh
 cargo run --release --example benchmark -- 100000
 cargo run --release --example benchmark -- --config japanese 100000
-```
-
-Also capture deterministic output for later comparison:
-
-```sh
-cargo run --quiet -- --seed 42 --config fenrin 1000 > /tmp/fenrin-before.txt
-cargo run --quiet -- --seed 42 --config japanese 1000 > /tmp/japanese-before.txt
-```
-
-For SAS encoding:
-
-```sh
 cargo run --release --example benchmark -- --sas 1000000
 ```
 
-Record results in a small working table:
+Fixed modes emit one tab-delimited, versioned record:
 
-| Iteration | Hypothesis | Median before | Median after | Change | Quality | Decision |
-| --- | --- | ---: | ---: | ---: | --- | --- |
-| 0 | Baseline | — | value | — | baseline | keep |
+```sh
+/tmp/fenrin-a/release/examples/benchmark \
+  --measure distinct --config fenrin --seed 42 --sessions 50 10000
 
-For names, also record `duplicate %`, `pair matches`, `collision bits`,
-`effective diversity`, and `max freq`.
+/tmp/fenrin-a/release/examples/benchmark \
+  --measure raw --config japanese --seed 42 --sessions 10 100000
+```
 
-## Each iteration
+`distinct` completes exactly `count` unique names in each session and includes
+the real CLI path. `raw` performs exactly `count`
+`Grammar::generate_name` calls per session. Both run one full untimed warmup
+session, then a fixed, non-adaptive number of timed sessions. Each session has
+a fresh RNG derived deterministically from the base seed. Grammar parsing stays
+outside timing; buffer allocation and destruction are inside distinct timing.
 
-1. **Choose one hypothesis.** Inspect or profile the current hotspot and state
-   what work will be removed, such as an allocation, repeated scan, lookup, or
-   sort. Do not change generation constants merely to make the benchmark faster.
-2. **Implement only that change.** Keep the diff small enough to revert without
-   affecting previously accepted optimizations.
-3. **Run correctness gates:**
+The default 50 sessions make a 10,000-name observation roughly half a second or
+longer on the optimized profiles. Increase the fixed session count before an
+experiment if A/A records are materially shorter. The record includes base
+seed, count, sessions, requested/completed work, attempts, elapsed nanoseconds,
+throughput, and formatted byte count.
 
-   ```sh
-   cargo fmt -- --check
-   cargo test --all-targets
-   cargo clippy --all-targets -- -D warnings
-   ```
+## Calibrate noise with A/A
 
-4. **Check behavior.** Name-generation optimizations must reproduce the saved
-   seeded outputs:
+Run the same prebuilt binary under both labels before testing candidates. The
+runner generates its entire ABBA/BAAB schedule from `--order-seed` and prints
+the plan before the first process starts. Repeating `--seed` cycles a fixed,
+preregistered base-seed set across blocks.
+
+```sh
+target/release/examples/paired \
+  --aa /tmp/fenrin-a/release/examples/benchmark \
+  --mode distinct --config fenrin --count 10000 --sessions 50 \
+  --blocks 16 --order-seed 731 \
+  --seed 42 --seed 314159 --seed 271828 --seed 161803 \
+  --target-speedup 3 | tee /tmp/fenrin-aa.log
+```
+
+`CALIBRATION` reports the observed block log-ratio standard deviation and an
+approximate block count for 80% power at the requested speedup. Choose and
+record the A/B block count before seeing candidate results; normally use at
+least 16 blocks. A/A is a noise estimate, not evidence of a performance change.
+
+## Compare prebuilt A/B binaries
+
+```sh
+target/release/examples/paired \
+  --baseline /tmp/fenrin-a/release/examples/benchmark \
+  --candidate /tmp/fenrin-b/release/examples/benchmark \
+  --mode distinct --config fenrin --count 10000 --sessions 50 \
+  --blocks 24 --order-seed 9127 \
+  --seed 42 --seed 314159 --seed 271828 --seed 161803 \
+  | tee /tmp/fenrin-ab.log
+```
+
+Run the same frozen design for Japanese. Use `--mode raw` only to locate whether
+a result comes from generation itself or session overhead. An explicit schedule
+can be archived and replayed with, for example,
+`--schedule ABBA,BAAB,ABBA,BAAB`; it cannot be combined with `--blocks` or
+`--order-seed`.
+
+Each block contains two A and two B observations. The runner computes one
+paired log-throughput ratio per block, then reports:
+
+- the geometric candidate/baseline speedup;
+- the standard deviation of block log ratios;
+- a Student-t 95% one-sided lower confidence bound.
+
+Every complete, valid preregistered block is retained, including unusually fast
+or slow blocks. A block is invalid only when a process cannot start, exits
+unsuccessfully, emits a malformed record, or reports different requested work.
+Invalid blocks are logged, never replaced, and cause a failing runner exit.
+
+The per-candidate 95% result is explicitly labeled
+`scope=exploratory_per_candidate`. It is a screening result, not a
+familywise-error-controlled claim across an optimization campaign. Use its
+lower bound with the preregistered behavior and secondary-profile rules to
+choose candidates, then reserve the confirmatory claim for fresh held-out data.
+
+## Each candidate
+
+1. State one concrete hypothesis and the work it should remove.
+2. Make one reversible change.
+3. Run formatting, tests, Clippy, and compare saved seeded outputs:
 
    ```sh
    cargo run --quiet -- --seed 42 --config fenrin 1000 > /tmp/fenrin-after.txt
@@ -91,59 +147,34 @@ For names, also record `duplicate %`, `pair matches`, `collision bits`,
    cmp /tmp/japanese-before.txt /tmp/japanese-after.txt
    ```
 
-   Both `cmp` commands must exit successfully. SAS compatibility is guarded by
-   the existing exhaustive SAS tests.
-5. **Benchmark three times** with the exact baseline commands. Record the median
-   `names/second` or `phrases/second`; do not select only the best run.
-6. **Decide:**
+4. Build a prebuilt candidate binary and run the frozen paired designs.
+5. Keep or reject using only the preregistered screening and behavior rules.
+   Do not add runs, remove observations, or change the analysis after seeing the
+   result.
+6. Log the hypothesis, commit, full `PLAN`/`RESULT` records, quality checks, and
+   decision. An accepted candidate becomes the next baseline.
 
-   - Keep a change with at least 5% median improvement.
-   - For a 2–5% improvement, run five measurements and keep it only if the new
-     median is at least 3% faster.
-   - Reject a change below 2%, any correctness failure, or a regression greater
-     than 2% in the secondary name profile.
-   - Name quality statistics must remain identical for a behavior-preserving
-     optimization. Treat an intentional distribution change as a separate task.
+For an intentional distribution change, define separate multi-seed quality
+criteria before timing: hard-constraint failures, distinct yield, collision
+probability/effective diversity, shape frequencies, and soft-score
+distribution. Do not use throughput to waive those criteria.
 
-7. **Keep or revert.** Commit an accepted change with a focused message such as
-   `perf(grammar): avoid repeated surface allocation`. Revert only the current
-   candidate when it is rejected; never use `git reset --hard`.
-8. Update the working table. An accepted change becomes the next iteration's
-   baseline and resets the consecutive-rejection count.
+## Held-out confirmation
 
-## Stop conditions
-
-Stop when any of these is true:
-
-- 8 candidates have been tried.
-- 3 candidates in a row were rejected.
-- No measured hotspot or concrete hypothesis remains.
-- Results vary by more than 5% between repeated runs; stabilize the environment
-  before continuing.
-- A proposed speedup requires changing output, public APIs, profile files, or
-  SAS compatibility. Report it as a separate proposal instead.
-
-## Final verification
-
-Run the full checks and large benchmarks once after the last accepted change:
+After the last accepted candidate, use fresh work seeds and a new order seed for
+one optimized-versus-start comparison. Add `--held-out` so the record is labeled
+`scope=held_out_confirmation`:
 
 ```sh
-cargo fmt -- --check
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo run --release --example benchmark
-cargo run --release --example benchmark -- --config japanese 1000000
-cargo run --release --example benchmark -- --sas
+target/release/examples/paired \
+  --baseline /tmp/fenrin-start/release/examples/benchmark \
+  --candidate /tmp/fenrin-final/release/examples/benchmark \
+  --mode distinct --config fenrin --count 10000 --sessions 50 \
+  --blocks 24 --order-seed 880301 --held-out \
+  --seed 8675309 --seed 11235813 --seed 299792458 --seed 4294967291
 ```
 
-For a grammar-engine optimization, also smoke-test every bundled profile:
-
-```sh
-for profile in fenrin japanese ancient-roman slavic klingon oceanic uralic caucasian aurelian obsidian; do
-  cargo run --release --example benchmark -- --config "$profile" 100000
-done
-```
-
-The final report should list accepted and rejected hypotheses, starting and
-ending medians, cumulative improvement, verification results, and any remaining
-hotspot worth investigating in a future loop.
+Do not tune from this result. The 95% one-sided lower bound is the campaign's
+confirmatory performance result. Also run all correctness gates, seeded
+comparisons, the Japanese held-out design, and smoke tests for every bundled
+profile. Record every held-out observation and final bound in `LOG.md`.

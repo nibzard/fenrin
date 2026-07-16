@@ -1,17 +1,19 @@
 // ABOUTME: Throughput benchmark for Fenrin with no benchmark-only dependencies.
-// ABOUTME: It times generation alone, then measures name concentration separately.
+// ABOUTME: It supports legacy reports plus fixed raw and distinct-session records.
 
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::hash::{Hash, Hasher};
 use std::hint::black_box;
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use fenrin::session::write_distinct_names;
 use fenrin::{BUNDLED_CONFIGS, Grammar, Rng, config, sas};
 
-const USAGE: &str = "Usage: cargo run --release --example benchmark -- [--config <name-or-path>] [count ...]\n       cargo run --release --example benchmark -- -sas|--sas [count ...]";
+const USAGE: &str = "Usage: cargo run --release --example benchmark -- [--config <name-or-path>] [count ...]\n       cargo run --release --example benchmark -- -sas|--sas [count ...]\n       benchmark --measure <raw|distinct> [--config <name-or-path>] [--seed <integer>] [--sessions <integer>] <count>";
 const DEFAULT_CONFIG: &str = "fenrin";
 const DEFAULT_COUNTS: [u64; 3] = [1_000, 10_000, 1_000_000];
 const WARMUP_ITEMS: u64 = 1_000;
@@ -20,6 +22,9 @@ const MIN_TIMING_TIME: Duration = Duration::from_millis(200);
 const MAX_TIMED_ITEMS: u64 = 10_000_000;
 const SEED: u64 = 42;
 const SAS_MASK: u64 = (1_u64 << sas::SAS_BITS) - 1;
+const FIXED_RECORD_VERSION: &str = "fenrin-fixed-v1";
+const DEFAULT_FIXED_SESSIONS: u64 = 50;
+const SESSION_SEED_STEP: u64 = 0x9e37_79b9_7f4a_7c15;
 
 #[derive(Debug, PartialEq)]
 enum Target {
@@ -27,16 +32,52 @@ enum Target {
     Sas,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MeasurementMode {
+    Raw,
+    Distinct,
+}
+
+impl MeasurementMode {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "raw" => Ok(Self::Raw),
+            "distinct" => Ok(Self::Distinct),
+            _ => Err(format!(
+                "invalid measurement mode `{value}`; expected `raw` or `distinct`"
+            )),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Distinct => "distinct",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FixedOptions {
+    mode: MeasurementMode,
+    seed: u64,
+    sessions: u64,
+}
+
 #[derive(Debug, PartialEq)]
 struct Arguments {
     target: Target,
     counts: Vec<u64>,
+    fixed: Option<FixedOptions>,
 }
 
 fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Arguments>, String> {
     let mut config = None;
     let mut sas = false;
     let mut counts = Vec::new();
+    let mut measurement = None;
+    let mut seed = None;
+    let mut sessions = None;
 
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -46,6 +87,43 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Arguments
                     return Err("`--sas` specified more than once".to_owned());
                 }
                 sas = true;
+            }
+            "--measure" => {
+                if measurement.is_some() {
+                    return Err("`--measure` specified more than once".to_owned());
+                }
+                let value = args
+                    .next()
+                    .ok_or_else(|| "missing value after `--measure`".to_owned())?;
+                measurement = Some(MeasurementMode::parse(&value)?);
+            }
+            "--seed" => {
+                if seed.is_some() {
+                    return Err("`--seed` specified more than once".to_owned());
+                }
+                let value = args
+                    .next()
+                    .ok_or_else(|| "missing value after `--seed`".to_owned())?;
+                seed = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "seed must be a non-negative integer".to_owned())?,
+                );
+            }
+            "--sessions" => {
+                if sessions.is_some() {
+                    return Err("`--sessions` specified more than once".to_owned());
+                }
+                let value = args
+                    .next()
+                    .ok_or_else(|| "missing value after `--sessions`".to_owned())?;
+                let value = value
+                    .parse::<u64>()
+                    .map_err(|_| "sessions must be a positive integer".to_owned())?;
+                if value == 0 {
+                    return Err("sessions must be a positive integer".to_owned());
+                }
+                sessions = Some(value);
             }
             "-c" | "--config" => {
                 if config.is_some() {
@@ -71,17 +149,45 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Arguments
         }
     }
 
-    if counts.is_empty() {
-        counts.extend(DEFAULT_COUNTS);
-    }
-
     let target = match (sas, config) {
         (true, Some(_)) => return Err("`--sas` cannot be combined with `--config`".to_owned()),
         (true, None) => Target::Sas,
         (false, config) => Target::Names(config.unwrap_or_else(|| DEFAULT_CONFIG.to_owned())),
     };
 
-    Ok(Some(Arguments { target, counts }))
+    let fixed = match measurement {
+        Some(mode) => {
+            if sas {
+                return Err("`--measure` cannot be combined with `--sas`".to_owned());
+            }
+            if counts.len() != 1 {
+                return Err("fixed measurements require exactly one count".to_owned());
+            }
+            Some(FixedOptions {
+                mode,
+                seed: seed.unwrap_or(SEED),
+                sessions: sessions.unwrap_or(DEFAULT_FIXED_SESSIONS),
+            })
+        }
+        None => {
+            if seed.is_some() {
+                return Err("`--seed` requires `--measure`".to_owned());
+            }
+            if sessions.is_some() {
+                return Err("`--sessions` requires `--measure`".to_owned());
+            }
+            if counts.is_empty() {
+                counts.extend(DEFAULT_COUNTS);
+            }
+            None
+        }
+    };
+
+    Ok(Some(Arguments {
+        target,
+        counts,
+        fixed,
+    }))
 }
 
 fn is_bare_path(path: &Path) -> bool {
@@ -140,6 +246,60 @@ struct Timing {
 }
 
 #[derive(Debug, PartialEq)]
+struct FixedMeasurement {
+    mode: MeasurementMode,
+    seed: u64,
+    count: u64,
+    sessions: u64,
+    requested: u64,
+    completed: u64,
+    attempts: u64,
+    elapsed_ns: u128,
+    output_bytes: u64,
+}
+
+impl FixedMeasurement {
+    fn names_per_second(&self) -> f64 {
+        self.completed as f64 * 1_000_000_000.0 / self.elapsed_ns as f64
+    }
+
+    fn record(&self) -> String {
+        format!(
+            "{FIXED_RECORD_VERSION}\tmode={}\tseed={}\tcount={}\tsessions={}\twarmup_sessions=1\trequested={}\tcompleted={}\tattempts={}\telapsed_ns={}\tnames_per_second={:.6}\toutput_bytes={}",
+            self.mode.as_str(),
+            self.seed,
+            self.count,
+            self.sessions,
+            self.requested,
+            self.completed,
+            self.attempts,
+            self.elapsed_ns,
+            self.names_per_second(),
+            self.output_bytes,
+        )
+    }
+}
+
+#[derive(Default)]
+struct CountingSink {
+    bytes: u64,
+}
+
+impl Write for CountingSink {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .checked_add(buffer.len() as u64)
+            .ok_or_else(|| io::Error::other("counting sink byte count overflowed"))?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq)]
 struct UniquenessStats {
     sampled: u64,
     unique: u64,
@@ -185,6 +345,109 @@ fn generate(
         drop(black_box(output));
     }
     Ok(())
+}
+
+fn session_seed(base: u64, session: u64) -> u64 {
+    base.wrapping_add(SESSION_SEED_STEP.wrapping_mul(session))
+}
+
+fn warmup_seed(base: u64) -> u64 {
+    base.wrapping_sub(SESSION_SEED_STEP)
+}
+
+fn run_raw_session(grammar: &Grammar, count: u64, seed: u64) -> Result<(), String> {
+    let mut rng = Rng::new(seed);
+    generate(count, || grammar.generate_name(&mut rng))
+        .map_err(|error| format!("generation failed: {error}"))
+}
+
+fn run_distinct_session(
+    grammar: &Grammar,
+    count: usize,
+    seed: u64,
+) -> Result<(fenrin::session::DistinctSessionStats, u64), String> {
+    let mut rng = Rng::new(seed);
+    let mut output = BufWriter::new(CountingSink::default());
+    let statistics = write_distinct_names(&mut output, count, &mut rng, grammar)
+        .map_err(|error| format!("distinct session failed: {error}"))?;
+    let output_bytes = black_box(output.get_ref().bytes);
+    drop(output);
+    Ok((statistics, output_bytes))
+}
+
+fn measure_fixed_names(
+    grammar: &Grammar,
+    options: FixedOptions,
+    count: u64,
+) -> Result<FixedMeasurement, String> {
+    let requested = count
+        .checked_mul(options.sessions)
+        .ok_or_else(|| "count times sessions overflowed".to_owned())?;
+
+    match options.mode {
+        MeasurementMode::Raw => {
+            run_raw_session(grammar, count, warmup_seed(options.seed))?;
+            let started = Instant::now();
+            for session in 0..options.sessions {
+                run_raw_session(grammar, count, session_seed(options.seed, session))?;
+            }
+            let elapsed_ns = started.elapsed().as_nanos();
+
+            Ok(FixedMeasurement {
+                mode: options.mode,
+                seed: options.seed,
+                count,
+                sessions: options.sessions,
+                requested,
+                completed: requested,
+                attempts: requested,
+                elapsed_ns,
+                output_bytes: 0,
+            })
+        }
+        MeasurementMode::Distinct => {
+            let count_usize = usize::try_from(count)
+                .map_err(|_| "distinct count is too large for this platform".to_owned())?;
+            black_box(run_distinct_session(
+                grammar,
+                count_usize,
+                warmup_seed(options.seed),
+            )?);
+            let started = Instant::now();
+            let mut completed = 0_u64;
+            let mut attempts = 0_u64;
+            let mut output_bytes = 0_u64;
+            for session in 0..options.sessions {
+                let (statistics, session_bytes) = run_distinct_session(
+                    grammar,
+                    count_usize,
+                    session_seed(options.seed, session),
+                )?;
+                completed = completed
+                    .checked_add(statistics.names as u64)
+                    .ok_or_else(|| "completed name count overflowed".to_owned())?;
+                attempts = attempts
+                    .checked_add(statistics.attempts as u64)
+                    .ok_or_else(|| "attempt count overflowed".to_owned())?;
+                output_bytes = output_bytes
+                    .checked_add(session_bytes)
+                    .ok_or_else(|| "formatted byte count overflowed".to_owned())?;
+            }
+            let elapsed_ns = started.elapsed().as_nanos();
+
+            Ok(FixedMeasurement {
+                mode: options.mode,
+                seed: options.seed,
+                count,
+                sessions: options.sessions,
+                requested,
+                completed,
+                attempts,
+                elapsed_ns,
+                output_bytes,
+            })
+        }
+    }
 }
 
 fn uniqueness_stats(
@@ -382,15 +645,25 @@ fn main() -> ExitCode {
         }
     };
 
-    let result = match arguments.target {
+    let Arguments {
+        target,
+        counts,
+        fixed,
+    } = arguments;
+    let result = match target {
         Target::Names(config) => match load_grammar(&config) {
-            Ok(grammar) => benchmark_names(&grammar, &config, &arguments.counts),
+            Ok(grammar) => match fixed {
+                Some(options) => measure_fixed_names(&grammar, options, counts[0]).map(|result| {
+                    println!("{}", result.record());
+                }),
+                None => benchmark_names(&grammar, &config, &counts),
+            },
             Err(error) => {
                 eprintln!("benchmark: {error}");
                 return ExitCode::from(2);
             }
         },
-        Target::Sas => benchmark_sas(&arguments.counts),
+        Target::Sas => benchmark_sas(&counts),
     };
 
     match result {
@@ -417,6 +690,7 @@ mod tests {
             Ok(Some(Arguments {
                 target: Target::Sas,
                 counts: vec![12],
+                fixed: None,
             }))
         );
         assert_eq!(arguments(&["-sas", "12"]), arguments(&["--sas", "12"]));
@@ -425,6 +699,7 @@ mod tests {
             Ok(Some(Arguments {
                 target: Target::Sas,
                 counts: DEFAULT_COUNTS.to_vec(),
+                fixed: None,
             }))
         );
     }
@@ -433,6 +708,125 @@ mod tests {
     fn sas_mode_rejects_name_config_options() {
         assert!(arguments(&["--sas", "--config", "japanese"]).is_err());
         assert!(arguments(&["--sas", "--sas"]).is_err());
+    }
+
+    #[test]
+    fn fixed_measurements_accept_a_mode_seed_config_and_one_count() {
+        assert_eq!(
+            arguments(&[
+                "--measure",
+                "distinct",
+                "--seed",
+                "99",
+                "--sessions",
+                "3",
+                "--config",
+                "japanese",
+                "10000",
+            ]),
+            Ok(Some(Arguments {
+                target: Target::Names("japanese".to_owned()),
+                counts: vec![10_000],
+                fixed: Some(FixedOptions {
+                    mode: MeasurementMode::Distinct,
+                    seed: 99,
+                    sessions: 3,
+                }),
+            }))
+        );
+        assert_eq!(
+            arguments(&["--measure", "raw", "1"])
+                .unwrap()
+                .unwrap()
+                .fixed,
+            Some(FixedOptions {
+                mode: MeasurementMode::Raw,
+                seed: SEED,
+                sessions: DEFAULT_FIXED_SESSIONS,
+            })
+        );
+    }
+
+    #[test]
+    fn fixed_measurements_reject_ambiguous_or_legacy_combinations() {
+        assert!(arguments(&["--measure", "other", "10"]).is_err());
+        assert!(arguments(&["--measure", "raw"]).is_err());
+        assert!(arguments(&["--measure", "raw", "10", "20"]).is_err());
+        assert!(arguments(&["--measure", "raw", "--sas", "10"]).is_err());
+        assert!(arguments(&["--seed", "7", "10"]).is_err());
+        assert!(arguments(&["--sessions", "2", "10"]).is_err());
+        assert!(arguments(&["--measure", "raw", "--sessions", "0", "10"]).is_err());
+        assert!(arguments(&["--measure", "raw", "--seed", "bad", "10"]).is_err());
+    }
+
+    #[test]
+    fn fixed_record_is_stable_and_machine_readable() {
+        let measurement = FixedMeasurement {
+            mode: MeasurementMode::Distinct,
+            seed: 7,
+            count: 10,
+            sessions: 1,
+            requested: 10,
+            completed: 10,
+            attempts: 12,
+            elapsed_ns: 2_000,
+            output_bytes: 80,
+        };
+
+        assert_eq!(
+            measurement.record(),
+            "fenrin-fixed-v1\tmode=distinct\tseed=7\tcount=10\tsessions=1\twarmup_sessions=1\trequested=10\tcompleted=10\tattempts=12\telapsed_ns=2000\tnames_per_second=5000000.000000\toutput_bytes=80"
+        );
+    }
+
+    #[test]
+    fn fixed_measurement_aggregates_preregistered_sessions_after_one_warmup() {
+        let grammar = load_grammar("fenrin").unwrap();
+        let raw = measure_fixed_names(
+            &grammar,
+            FixedOptions {
+                mode: MeasurementMode::Raw,
+                seed: 11,
+                sessions: 3,
+            },
+            2,
+        )
+        .unwrap();
+        assert_eq!(raw.requested, 6);
+        assert_eq!(raw.completed, 6);
+        assert_eq!(raw.attempts, 6);
+
+        let distinct = measure_fixed_names(
+            &grammar,
+            FixedOptions {
+                mode: MeasurementMode::Distinct,
+                seed: 11,
+                sessions: 2,
+            },
+            2,
+        )
+        .unwrap();
+        assert_eq!(distinct.requested, 4);
+        assert_eq!(distinct.completed, 4);
+        assert!(distinct.attempts >= 4);
+        assert!(distinct.output_bytes > 4);
+    }
+
+    #[test]
+    fn session_seeds_are_reproducible_and_do_not_reuse_the_warmup() {
+        assert_eq!(session_seed(17, 0), 17);
+        assert_eq!(session_seed(17, 2), session_seed(17, 2));
+        assert_ne!(session_seed(17, 1), session_seed(17, 2));
+        assert_ne!(warmup_seed(17), session_seed(17, 0));
+    }
+
+    #[test]
+    fn counting_sink_accepts_formatted_output_without_storing_it() {
+        let mut sink = CountingSink::default();
+        writeln!(&mut sink, "alpha").unwrap();
+        write!(&mut sink, "beta").unwrap();
+
+        assert_eq!(sink.bytes, 10);
     }
 
     #[test]

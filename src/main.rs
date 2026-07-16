@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::env;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -6,13 +5,13 @@ use std::process::{self, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fenrin::grammar::{Grammar, Rng};
+use fenrin::session::write_distinct_names;
 use fenrin::{BUNDLED_CONFIGS, config, sas};
 
 const USAGE: &str = "Usage: fenrin [--config <name-or-path>] [--seed <integer>] <count>\n       fenrin -sas|--sas [10-hex-digits]\n       fenrin --sas-words";
 const CONFIG_DIRECTORY: &str = "configs";
 const DEFAULT_CONFIG: &str = "fenrin";
 const MAX_COUNT: usize = 10_000;
-const ATTEMPTS_PER_NAME: usize = 100;
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -184,32 +183,7 @@ fn write_names(
     rng: &mut Rng,
     grammar: &Grammar,
 ) -> io::Result<()> {
-    let mut names = HashSet::with_capacity(count);
-    let mut generated = Vec::with_capacity(count);
-    let max_attempts = count.saturating_mul(ATTEMPTS_PER_NAME).max(1_000);
-    let mut attempts = 0;
-
-    while names.len() < count {
-        if attempts == max_attempts {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "retry limit reached before enough distinct names were produced",
-            ));
-        }
-        attempts += 1;
-
-        let name = grammar
-            .generate_name(rng)
-            .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?;
-        if names.insert(name.clone()) {
-            generated.push(name);
-        }
-    }
-
-    for name in generated {
-        writeln!(output, "{name}")?;
-    }
-    output.flush()
+    write_distinct_names(output, count, rng, grammar).map(|_| ())
 }
 
 fn main() -> ExitCode {
@@ -299,6 +273,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     fn default_grammar() -> Grammar {
         config::parse(include_str!("../configs/fenrin.conf")).unwrap()
