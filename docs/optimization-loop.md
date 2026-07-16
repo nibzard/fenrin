@@ -77,6 +77,23 @@ experiment if A/A records are materially shorter. The record includes base
 seed, count, sessions, requested/completed work, attempts, elapsed nanoseconds,
 throughput, and formatted byte count.
 
+## Reproducible PGO training
+
+Build an instrumented binary, train it, and build the profile-optimized binary
+with one isolated command:
+
+```sh
+scripts/build-pgo.sh <unique-run-name>
+```
+
+The script trains every bundled grammar with explicit fixed-work raw sessions
+and an explicit seeded CLI distinct-name run. Training counts, session counts,
+seeds, source revision/state, and tool versions are recorded in
+`target/pgo/<run-name>/manifest.txt`. Build-time profiles are discarded, and
+the merge fails unless every planned runtime profile was produced. Treat the
+resulting optimized benchmark as another candidate and evaluate it with the
+same paired protocol; do not compare build durations or adaptive training runs.
+
 ## Calibrate noise with A/A
 
 Run the same prebuilt binary under both labels before testing candidates. The
