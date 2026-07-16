@@ -121,9 +121,12 @@ weighted acyclic grammar
     -> orthographic spelling
 ```
 
-Fenrin samples a weighted top-level shape, produces several well-formed
-fillings, and randomly chooses among the lowest-scoring candidates. This keeps
-the output varied while filtering combinations the profile marks as awkward.
+Fenrin samples a weighted top-level shape and returns the first well-formed
+filling with a zero soft-constraint score. Each shape has a finite budget of 64
+total or 16 well-formed fillings. If none scores zero within that budget, it
+randomly chooses among the four lowest-scoring well-formed fillings seen. It
+tries at most eight shapes before reporting that the grammar could not produce
+a name.
 
 ## Benchmark
 

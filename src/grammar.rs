@@ -324,13 +324,16 @@ impl Grammar {
 
             let cutoff = candidates.cutoff();
             let score = self.score(&units, cutoff);
+            // Soft scores are sums of nonnegative penalties. The first valid
+            // zero is therefore globally optimal and retains the raw weighted
+            // identity distribution conditional on validity and score zero.
+            if score == 0 {
+                return Some(self.render_units(&units));
+            }
             candidates.consider(score, &units);
 
             accepted += 1;
-            // Scores are sums of nonnegative penalties. Once the stable elite
-            // contains four zero-score candidates, no later fill can displace
-            // any of them, including a later zero-score tie.
-            if accepted == CANDIDATE_POOL || candidates.cutoff() == Some(0) {
+            if accepted == CANDIDATE_POOL {
                 break;
             }
         }
@@ -520,6 +523,21 @@ impl Grammar {
 
         output
     }
+
+    fn render_units(&self, units: &[Unit]) -> String {
+        let capacity = units
+            .iter()
+            .filter_map(|unit| unit.segment_index())
+            .map(|segment| self.segments[segment].spelling.len())
+            .sum();
+        let mut output = String::with_capacity(capacity);
+
+        for segment in units.iter().filter_map(|unit| unit.segment_index()) {
+            output.push_str(&self.segments[segment].spelling);
+        }
+
+        output
+    }
 }
 
 fn count_matches(selector: &Selector, units: &[Unit], grammar: &Grammar) -> usize {
@@ -659,10 +677,23 @@ mod tests {
         }
     }
 
-    fn generate_name_without_saturation(
+    #[derive(Clone, Copy)]
+    enum TestPolicy {
+        FirstZero,
+        SaturatedElite,
+    }
+
+    struct TestSelection {
+        name: String,
+        start_production: usize,
+        score: u64,
+    }
+
+    fn generate_name_with_policy(
         grammar: &Grammar,
         rng: &mut Rng,
-    ) -> Result<String, &'static str> {
+        policy: TestPolicy,
+    ) -> Result<TestSelection, &'static str> {
         for _ in 0..SHAPE_ATTEMPTS {
             let start_production = grammar.pick_production(grammar.start, rng);
             let mut candidates = ElitePool::new();
@@ -679,19 +710,41 @@ mod tests {
                 }
 
                 let score = grammar.score(&units, candidates.cutoff());
+                if matches!(policy, TestPolicy::FirstZero) && score == 0 {
+                    return Ok(TestSelection {
+                        name: grammar.render_units(&units),
+                        start_production,
+                        score,
+                    });
+                }
                 candidates.consider(score, &units);
                 accepted += 1;
-                if accepted == CANDIDATE_POOL {
+                if accepted == CANDIDATE_POOL
+                    || matches!(policy, TestPolicy::SaturatedElite)
+                        && candidates.cutoff() == Some(0)
+                {
                     break;
                 }
             }
 
             if candidates.len != 0 {
                 let choice = rng.index(candidates.len);
-                return Ok(grammar.render_segments(candidates.segments(choice)));
+                return Ok(TestSelection {
+                    name: grammar.render_segments(candidates.segments(choice)),
+                    start_production,
+                    score: candidates.entries[choice].score,
+                });
             }
         }
         Err("grammar could not produce a well-formed name")
+    }
+
+    fn generate_name_with_saturation(
+        grammar: &Grammar,
+        rng: &mut Rng,
+    ) -> Result<String, &'static str> {
+        generate_name_with_policy(grammar, rng, TestPolicy::SaturatedElite)
+            .map(|selection| selection.name)
     }
 
     fn pool_snapshot(pool: &ElitePool) -> Vec<(u64, Vec<u8>)> {
@@ -706,39 +759,89 @@ mod tests {
         unique: usize,
         collision_pairs: u64,
         bytes: usize,
+        shape_counts: Vec<usize>,
+        score_counts: BTreeMap<u64, usize>,
     }
 
     fn quality(
         grammar: &Grammar,
         seeds: &[u64],
         count_per_seed: usize,
-        optimized: bool,
-    ) -> Quality {
+        policy: TestPolicy,
+    ) -> (Quality, Vec<Quality>) {
         let mut frequencies = HashMap::<String, u64>::new();
         let mut bytes = 0;
+        let mut shape_counts = vec![0; grammar.rules[grammar.start].productions.len()];
+        let mut score_counts = BTreeMap::new();
+        let mut batches = Vec::with_capacity(seeds.len());
         for &seed in seeds {
             let mut rng = Rng::new(seed);
+            let mut batch_frequencies = HashMap::<String, u64>::new();
+            let mut batch_bytes = 0;
+            let mut batch_shape_counts = vec![0; grammar.rules[grammar.start].productions.len()];
+            let mut batch_score_counts = BTreeMap::new();
             for _ in 0..count_per_seed {
-                let name = if optimized {
-                    grammar.generate_name(&mut rng)
-                } else {
-                    generate_name_without_saturation(grammar, &mut rng)
-                }
-                .unwrap();
-                bytes += name.len();
-                *frequencies.entry(name).or_insert(0) += 1;
+                let selection = generate_name_with_policy(grammar, &mut rng, policy).unwrap();
+                bytes += selection.name.len();
+                batch_bytes += selection.name.len();
+                shape_counts[selection.start_production] += 1;
+                batch_shape_counts[selection.start_production] += 1;
+                *score_counts.entry(selection.score).or_insert(0) += 1;
+                *batch_score_counts.entry(selection.score).or_insert(0) += 1;
+                *frequencies.entry(selection.name.clone()).or_insert(0) += 1;
+                *batch_frequencies.entry(selection.name).or_insert(0) += 1;
             }
+            let batch_collision_pairs = batch_frequencies
+                .values()
+                .map(|frequency| frequency * (frequency - 1) / 2)
+                .sum();
+            batches.push(Quality {
+                sampled: count_per_seed,
+                unique: batch_frequencies.len(),
+                collision_pairs: batch_collision_pairs,
+                bytes: batch_bytes,
+                shape_counts: batch_shape_counts,
+                score_counts: batch_score_counts,
+            });
         }
         let collision_pairs = frequencies
             .values()
             .map(|frequency| frequency * (frequency - 1) / 2)
             .sum();
-        Quality {
-            sampled: seeds.len() * count_per_seed,
-            unique: frequencies.len(),
-            collision_pairs,
-            bytes,
-        }
+        (
+            Quality {
+                sampled: seeds.len() * count_per_seed,
+                unique: frequencies.len(),
+                collision_pairs,
+                bytes,
+                shape_counts,
+                score_counts,
+            },
+            batches,
+        )
+    }
+
+    fn paired_t_interval(
+        left: &[Quality],
+        right: &[Quality],
+        critical_value: f64,
+        metric: impl Fn(&Quality) -> f64,
+    ) -> (f64, f64) {
+        assert_eq!(left.len(), right.len());
+        assert!(left.len() > 1);
+        let differences: Vec<_> = left
+            .iter()
+            .zip(right)
+            .map(|(left, right)| metric(left) - metric(right))
+            .collect();
+        let mean = differences.iter().sum::<f64>() / differences.len() as f64;
+        let variance = differences
+            .iter()
+            .map(|difference| (difference - mean).powi(2))
+            .sum::<f64>()
+            / (differences.len() - 1) as f64;
+        let half_width = critical_value * (variance / differences.len() as f64).sqrt();
+        (mean, half_width)
     }
 
     #[test]
@@ -845,6 +948,99 @@ mod tests {
     }
 
     #[test]
+    fn first_zero_policy_exhaustively_preserves_weighted_zero_ticket_law() {
+        // Tickets 0, 1, and 2 are zero-score names: one spelling has one
+        // ticket and the other has two. Ticket 3 is positive. Exhaust every
+        // length-eight ticket stream and select its first zero-score ticket.
+        // The selected zero spellings must retain their exact 1:2 weight ratio;
+        // suffix tickets cannot bias the identity of the first success.
+        const STREAM_LEN: usize = 8;
+        const STREAMS: usize = 4_usize.pow(STREAM_LEN as u32);
+        let mut selected = [0_u64; 2];
+        let mut streams_without_zero = 0_u64;
+
+        for mut encoded in 0..STREAMS {
+            let mut choice = None;
+            for _ in 0..STREAM_LEN {
+                let ticket = encoded % 4;
+                encoded /= 4;
+                match ticket {
+                    0 => {
+                        choice = Some(0);
+                        break;
+                    }
+                    1 | 2 => {
+                        choice = Some(1);
+                        break;
+                    }
+                    3 => {}
+                    _ => unreachable!(),
+                }
+            }
+            if let Some(choice) = choice {
+                selected[choice] += 1;
+            } else {
+                streams_without_zero += 1;
+            }
+        }
+
+        assert_eq!(selected[1], selected[0] * 2);
+        assert_eq!(
+            selected.iter().sum::<u64>() + streams_without_zero,
+            STREAMS as u64
+        );
+        assert_eq!(streams_without_zero, 1);
+    }
+
+    #[test]
+    fn first_zero_runtime_matches_explicit_bounded_policy() {
+        let grammar = config::parse(
+            "segments = A B C\n\
+             feature awkward yes = A C\n\
+             start = NAME\n\
+             rule NAME = 1: @T\n\
+             rule T = 1: A | 2: B | 1: C\n\
+             soft excess awkward yes 0 1\n",
+        )
+        .unwrap();
+
+        for seed in 0..4096 {
+            let mut runtime_rng = Rng::new(seed);
+            let mut reference_rng = Rng::new(seed);
+            let runtime = grammar.generate_name(&mut runtime_rng);
+            let reference =
+                generate_name_with_policy(&grammar, &mut reference_rng, TestPolicy::FirstZero)
+                    .map(|selection| selection.name);
+            assert_eq!(runtime, reference, "seed {seed}");
+            assert_eq!(runtime_rng.0, reference_rng.0, "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn no_zero_path_retains_the_packed_elite_fallback() {
+        let grammar = config::parse(
+            "segments = A B C\n\
+             feature awkward yes = A B C\n\
+             start = NAME\n\
+             rule NAME = 1: @T\n\
+             rule T = 1: A | 2: B | 1: C\n\
+             soft excess awkward yes 0 1\n",
+        )
+        .unwrap();
+
+        for seed in 0..4096 {
+            let mut runtime_rng = Rng::new(seed);
+            let mut saturation_rng = Rng::new(seed);
+            assert_eq!(
+                grammar.generate_name(&mut runtime_rng),
+                generate_name_with_saturation(&grammar, &mut saturation_rng),
+                "seed {seed}"
+            );
+            assert_eq!(runtime_rng.0, saturation_rng.0, "seed {seed}");
+        }
+    }
+
+    #[test]
     #[ignore = "diagnostic: cargo test --lib bundled_start_score_and_saturation_diagnostics -- --ignored --nocapture"]
     fn bundled_start_score_and_saturation_diagnostics() {
         const SAMPLES_PER_START: usize = 256;
@@ -941,26 +1137,40 @@ mod tests {
             let mut legacy_rng = Rng::new(seed);
             assert_eq!(
                 grammar.generate_name(&mut optimized_rng),
-                generate_name_without_saturation(&grammar, &mut legacy_rng)
+                generate_name_with_saturation(&grammar, &mut legacy_rng)
             );
             assert_eq!(optimized_rng.0, legacy_rng.0);
         }
     }
 
     #[test]
-    #[ignore = "campaign check: cargo test --lib saturation_preserves_multi_seed_name_quality -- --ignored --nocapture"]
-    fn saturation_preserves_multi_seed_name_quality() {
-        const SEEDS: [u64; 8] = [0, 1, 2, 7, 42, 999, 65_537, u64::MAX];
-        const COUNT_PER_SEED: usize = 5_000;
+    #[ignore = "campaign check: cargo test --lib first_zero_meets_preregistered_all_profile_quality_bounds -- --ignored --nocapture"]
+    fn first_zero_meets_preregistered_all_profile_quality_bounds() {
+        const SEEDS: [u64; 8] = [
+            0x243f_6a88_85a3_08d3,
+            0x1319_8a2e_0370_7344,
+            0xa409_3822_299f_31d0,
+            0x082e_fa98_ec4e_6c89,
+            0x4528_21e6_38d0_1377,
+            0xbe54_66cf_34e9_0c6c,
+            0xc0ac_29b7_c97c_50dd,
+            0x3f84_d5b5_b547_0917,
+        ];
+        const COUNT_PER_SEED: usize = 80_000;
+        const MAX_DUPLICATE_RATE_DELTA: f64 = 0.005;
+        const MAX_COLLISION_BITS_DELTA: f64 = 0.15;
+        const MAX_MEAN_BYTES_DELTA: f64 = 0.05;
+        const MAX_SHAPE_SHARE_DELTA: f64 = 0.01;
+        const MAX_ZERO_SCORE_SHARE_REGRESSION: f64 = 0.001;
+        const T_TWO_SIDED_95_DF7: f64 = 2.364_624_252;
+        const T_ONE_SIDED_95_DF7: f64 = 1.894_578_605;
 
-        for profile in ["fenrin.conf", "japanese.conf"] {
-            let source = BUNDLED_CONFIGS
-                .iter()
-                .find_map(|(name, source)| (*name == profile).then_some(*source))
-                .unwrap();
+        for &(profile, source) in BUNDLED_CONFIGS {
             let grammar = config::parse(source).unwrap();
-            let optimized = quality(&grammar, &SEEDS, COUNT_PER_SEED, true);
-            let legacy = quality(&grammar, &SEEDS, COUNT_PER_SEED, false);
+            let (first_zero, first_zero_batches) =
+                quality(&grammar, &SEEDS, COUNT_PER_SEED, TestPolicy::FirstZero);
+            let (saturation, saturation_batches) =
+                quality(&grammar, &SEEDS, COUNT_PER_SEED, TestPolicy::SaturatedElite);
 
             let duplicate_rate = |quality: &Quality| {
                 (quality.sampled - quality.unique) as f64 / quality.sampled as f64
@@ -970,18 +1180,118 @@ mod tests {
                 -(quality.collision_pairs as f64 / pairs).log2()
             };
             let mean_bytes = |quality: &Quality| quality.bytes as f64 / quality.sampled as f64;
+            let zero_score_share = |quality: &Quality| {
+                quality.score_counts.get(&0).copied().unwrap_or(0) as f64 / quality.sampled as f64
+            };
+
+            eprintln!(
+                "{profile}: first-zero={first_zero:?}, saturation={saturation:?} duplicate={:.6}/{:.6} collision-bits={:.6}/{:.6} mean-bytes={:.6}/{:.6} zero-score={:.6}/{:.6}",
+                duplicate_rate(&first_zero),
+                duplicate_rate(&saturation),
+                collision_bits(&first_zero),
+                collision_bits(&saturation),
+                mean_bytes(&first_zero),
+                mean_bytes(&saturation),
+                zero_score_share(&first_zero),
+                zero_score_share(&saturation),
+            );
 
             assert!(
-                (duplicate_rate(&optimized) - duplicate_rate(&legacy)).abs() < 0.005,
-                "{profile}: optimized={optimized:?}, legacy={legacy:?}"
+                (duplicate_rate(&first_zero) - duplicate_rate(&saturation)).abs()
+                    < MAX_DUPLICATE_RATE_DELTA,
+                "{profile}: first-zero={first_zero:?}, saturation={saturation:?}"
             );
             assert!(
-                (collision_bits(&optimized) - collision_bits(&legacy)).abs() < 0.15,
-                "{profile}: optimized={optimized:?}, legacy={legacy:?}"
+                (collision_bits(&first_zero) - collision_bits(&saturation)).abs()
+                    < MAX_COLLISION_BITS_DELTA,
+                "{profile}: first-zero={first_zero:?}, saturation={saturation:?}"
             );
             assert!(
-                (mean_bytes(&optimized) - mean_bytes(&legacy)).abs() < 0.05,
-                "{profile}: optimized={optimized:?}, legacy={legacy:?}"
+                (mean_bytes(&first_zero) - mean_bytes(&saturation)).abs() < MAX_MEAN_BYTES_DELTA,
+                "{profile}: first-zero={first_zero:?}, saturation={saturation:?}"
+            );
+            for (start, (&first_zero_count, &saturation_count)) in first_zero
+                .shape_counts
+                .iter()
+                .zip(&saturation.shape_counts)
+                .enumerate()
+            {
+                let first_zero_share = first_zero_count as f64 / first_zero.sampled as f64;
+                let saturation_share = saturation_count as f64 / saturation.sampled as f64;
+                assert!(
+                    (first_zero_share - saturation_share).abs() < MAX_SHAPE_SHARE_DELTA,
+                    "{profile} start {start}: first-zero={first_zero:?}, saturation={saturation:?}"
+                );
+            }
+            assert!(
+                zero_score_share(&first_zero) + MAX_ZERO_SCORE_SHARE_REGRESSION
+                    >= zero_score_share(&saturation),
+                "{profile}: first-zero={first_zero:?}, saturation={saturation:?}"
+            );
+
+            let require_equivalence = |metric: &str, mean: f64, half_width: f64, margin: f64| {
+                eprintln!(
+                    "{profile}: paired-{metric}-delta={mean:.6} two-sided-95-half={half_width:.6} equivalence-margin={margin:.6}"
+                );
+                assert!(
+                    mean.abs() + half_width < margin,
+                    "{profile} {metric}: delta={mean}, half={half_width}, margin={margin}"
+                );
+            };
+
+            let (mean, half_width) = paired_t_interval(
+                &first_zero_batches,
+                &saturation_batches,
+                T_TWO_SIDED_95_DF7,
+                duplicate_rate,
+            );
+            require_equivalence("duplicate-rate", mean, half_width, MAX_DUPLICATE_RATE_DELTA);
+
+            let (mean, half_width) = paired_t_interval(
+                &first_zero_batches,
+                &saturation_batches,
+                T_TWO_SIDED_95_DF7,
+                collision_bits,
+            );
+            require_equivalence("collision-bits", mean, half_width, MAX_COLLISION_BITS_DELTA);
+
+            let (mean, half_width) = paired_t_interval(
+                &first_zero_batches,
+                &saturation_batches,
+                T_TWO_SIDED_95_DF7,
+                mean_bytes,
+            );
+            require_equivalence("mean-bytes", mean, half_width, MAX_MEAN_BYTES_DELTA);
+
+            for start in 0..first_zero.shape_counts.len() {
+                let shape_share =
+                    |quality: &Quality| quality.shape_counts[start] as f64 / quality.sampled as f64;
+                let (mean, half_width) = paired_t_interval(
+                    &first_zero_batches,
+                    &saturation_batches,
+                    T_TWO_SIDED_95_DF7,
+                    shape_share,
+                );
+                require_equivalence(
+                    &format!("shape-{start}-share"),
+                    mean,
+                    half_width,
+                    MAX_SHAPE_SHARE_DELTA,
+                );
+            }
+
+            let (mean_regression, one_sided_half_width) = paired_t_interval(
+                &saturation_batches,
+                &first_zero_batches,
+                T_ONE_SIDED_95_DF7,
+                zero_score_share,
+            );
+            eprintln!(
+                "{profile}: paired-zero-score-regression={mean_regression:.6} one-sided-95-half={one_sided_half_width:.6} noninferiority-margin={MAX_ZERO_SCORE_SHARE_REGRESSION:.6}"
+            );
+            assert!(
+                mean_regression + one_sided_half_width < MAX_ZERO_SCORE_SHARE_REGRESSION,
+                "{profile} zero-score: regression={mean_regression}, half={one_sided_half_width}"
             );
         }
     }
